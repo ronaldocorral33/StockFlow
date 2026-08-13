@@ -2,6 +2,7 @@
 require __DIR__ . '/src/Support/bootstrap.php';
 
 use App\Auth;
+use App\Models\Business;
 
 if (Auth::currentUserId() !== null) {
     header('Location: ' . url('dashboard.php'));
@@ -11,17 +12,20 @@ if (Auth::currentUserId() !== null) {
 $error = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
-    try {
-        $userId = Auth::register(
-            (string)($_POST['name'] ?? ''),
-            (string)($_POST['email'] ?? ''),
-            (string)($_POST['password'] ?? '')
-        );
-        Auth::attempt((string)$_POST['email'], (string)$_POST['password']);
-        header('Location: ' . url('onboarding.php'));
-        exit;
-    } catch (\InvalidArgumentException $e) {
-        $error = $e->getMessage();
+    if (rate_limit_hit('register:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), 3600, 5)) {
+        $error = 'Demasiados intentos de registro. Intenta de nuevo en un rato.';
+    } else {
+        try {
+            $name = (string)($_POST['name'] ?? '');
+            $userId = Auth::register($name, (string)($_POST['email'] ?? ''), (string)($_POST['password'] ?? ''));
+            Auth::attempt((string)$_POST['email'], (string)$_POST['password']);
+            $businessId = Business::createWithOwner("Negocio de {$name}", $userId);
+            $_SESSION['active_business_id'] = $businessId;
+            header('Location: ' . url('onboarding.php'));
+            exit;
+        } catch (\InvalidArgumentException $e) {
+            $error = $e->getMessage();
+        }
     }
 }
 ?>

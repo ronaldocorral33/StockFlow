@@ -3,8 +3,10 @@ require __DIR__ . '/src/Support/bootstrap.php';
 
 use App\Auth;
 
-require_login();
+['user_id' => $userId, 'business_id' => $businessId] = require_business();
 $user = Auth::currentUser();
+$business = \App\Models\Business::find($businessId);
+$myBusinesses = \App\Models\Business::listForUser($userId);
 if ($user === null) {
     header('Location: ' . url('login.php'));
     exit;
@@ -48,6 +50,14 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
       <div class="mark">S</div>
       <div class="name">StockFlow</div>
     </div>
+    <?php if ($business): ?>
+    <div class="sb-business">
+      <div class="bname" title="<?= esc($business['name']) ?>"><?= esc($business['name']) ?></div>
+      <?php if (count($myBusinesses) > 1): ?>
+        <a class="bswitch" href="<?= esc(url('select_business.php')) ?>">Cambiar</a>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
     <nav class="sb-nav" id="sb-nav">
       <div class="sb-indicator" id="sb-indicator"></div>
       <button class="sb-item active" data-tab="entradas" data-label="Entradas" onclick="switchTab('entradas')"><?= icon('inbox') ?><span class="lbl">Entradas</span></button>

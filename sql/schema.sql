@@ -1,5 +1,12 @@
--- Control de Inventario General — esquema de base de datos
+-- StockFlow — esquema base de datos (v1, pre-multitenant).
 -- Motor: MariaDB 10.4 (XAMPP)
+--
+-- IMPORTANTE: este archivo es el esquema original. Para una instalación nueva, corre EN ORDEN:
+--   1) sql/schema.sql              (este archivo)
+--   2) sql/002_multitenant.sql     (negocios, roles, permisos, auditoría, rate limiting)
+--   3) scripts/migrate_to_multitenant.php   (crea un negocio por usuario existente + backfill)
+--   4) sql/003_multitenant_harden.sql       (NOT NULL + UNIQUE por negocio)
+--   5) sql/chatbot_ro_user.sql     (usuario MySQL de solo lectura para el chatbot)
 
 CREATE DATABASE IF NOT EXISTS control_inventario
   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

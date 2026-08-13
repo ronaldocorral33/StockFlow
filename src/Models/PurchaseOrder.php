@@ -8,10 +8,19 @@ use App\Services\PricingService;
 
 class PurchaseOrder
 {
-    public static function nextOrderNumber(int $userId): int
+    /** Debe llamarse dentro de una transacción ya abierta — usa FOR UPDATE para serializar
+     *  la generación de números de pedido entre empleados concurrentes del mismo negocio. */
+    private static function nextOrderNumberLocked(\PDO $pdo, int $businessId): int
     {
-        $stmt = Database::connection()->prepare('SELECT COALESCE(MAX(order_number), 0) + 1 FROM purchase_orders WHERE user_id = ?');
-        $stmt->execute([$userId]);
+        $stmt = $pdo->prepare('SELECT COALESCE(MAX(order_number), 0) + 1 FROM purchase_orders WHERE business_id = ? FOR UPDATE');
+        $stmt->execute([$businessId]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    public static function nextOrderNumber(int $businessId): int
+    {
+        $stmt = Database::connection()->prepare('SELECT COALESCE(MAX(order_number), 0) + 1 FROM purchase_orders WHERE business_id = ?');
+        $stmt->execute([$businessId]);
         return (int)$stmt->fetchColumn();
     }
 
@@ -21,7 +30,7 @@ class PurchaseOrder
      * $items: [{name, variant_label?, category?, subcategory?, cost?, sale_price?, attributes?}, ...]
      * @return array{purchase_order_id:int, item_ids:int[]}
      */
-    public static function createWithItems(int $userId, array $header, array $items): array
+    public static function createWithItems(int $businessId, int $actorUserId, array $header, array $items): array
     {
         if (empty($items)) {
             throw new \InvalidArgumentException('El pedido necesita al menos un producto.');
@@ -38,17 +47,19 @@ class PurchaseOrder
         $pdo = Database::connection();
         $pdo->beginTransaction();
         try {
-            $supplierId = Supplier::resolveOrCreate($userId, $header['supplier'] ?? null);
-            $orderNumber = !empty($header['order_number']) ? (int)$header['order_number'] : self::nextOrderNumber($userId);
+            $supplierId = Supplier::resolveOrCreate($businessId, $actorUserId, $header['supplier'] ?? null);
+            $orderNumber = !empty($header['order_number'])
+                ? (int)$header['order_number']
+                : self::nextOrderNumberLocked($pdo, $businessId);
 
             $stmt = $pdo->prepare(
                 'INSERT INTO purchase_orders
-                 (user_id, order_number, supplier_id, purchase_date, arrival_date, currency, exchange_rate,
+                 (business_id, user_id, order_number, supplier_id, purchase_date, arrival_date, currency, exchange_rate,
                   shipping_total_original, shipping_total_mxn, item_count)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
-                $userId, $orderNumber, $supplierId,
+                $businessId, $actorUserId, $orderNumber, $supplierId,
                 ($header['purchase_date'] ?? null) ?: null, ($header['arrival_date'] ?? null) ?: null,
                 $currency, $exchangeRate, $shippingTotalOriginal, $shippingTotalMxn, $count,
             ]);
@@ -56,9 +67,9 @@ class PurchaseOrder
 
             $itemStmt = $pdo->prepare(
                 'INSERT INTO inventory_items
-                 (user_id, purchase_order_id, supplier_id, name, variant_label, category, subcategory,
+                 (business_id, user_id, purchase_order_id, supplier_id, name, variant_label, category, subcategory,
                   attributes, cost, shipping_cost, sale_price, purchase_date, arrival_date)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
 
             $itemIds = [];
@@ -72,7 +83,7 @@ class PurchaseOrder
                 $attributes = !empty($item['attributes']) ? json_encode($item['attributes']) : null;
 
                 $itemStmt->execute([
-                    $userId, $poId, $supplierId,
+                    $businessId, $actorUserId, $poId, $supplierId,
                     $name, $item['variant_label'] ?? null, $item['category'] ?? null, $item['subcategory'] ?? null,
                     $attributes, $cost, $shippingPerUnit, $salePrice,
                     ($header['purchase_date'] ?? null) ?: null, ($header['arrival_date'] ?? null) ?: null,

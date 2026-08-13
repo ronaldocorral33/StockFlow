@@ -23,11 +23,11 @@ class ImportExportService
         'sale_date' => ['Fecha de Venta', 'Fecha de venta'],
     ];
 
-    /** Filas aplanadas para exportar: columnas fijas legibles + una columna por atributo del usuario. */
-    public static function exportRows(int $userId): array
+    /** Filas aplanadas para exportar: columnas fijas legibles + una columna por atributo del negocio. */
+    public static function exportRows(int $businessId): array
     {
-        $attrDefs = AttributeDefinition::listForUser($userId);
-        $items = InventoryItem::list($userId, ['sort' => 'created_at', 'dir' => 'asc']);
+        $attrDefs = AttributeDefinition::listForBusiness($businessId);
+        $items = InventoryItem::list($businessId, ['sort' => 'created_at', 'dir' => 'asc']);
 
         return array_map(function ($item) use ($attrDefs) {
             $row = [
@@ -95,9 +95,9 @@ class ImportExportService
         return $data;
     }
 
-    public static function importRows(int $userId, array $rawRows): array
+    public static function importRows(int $businessId, int $actorUserId, array $rawRows): array
     {
-        $attrDefs = AttributeDefinition::listForUser($userId);
+        $attrDefs = AttributeDefinition::listForBusiness($businessId);
         $inserted = 0;
         $skipped = 0;
         $errors = [];
@@ -109,7 +109,7 @@ class ImportExportService
                 continue;
             }
             try {
-                InventoryItem::create($userId, $data);
+                InventoryItem::create($businessId, $actorUserId, $data);
                 $inserted++;
             } catch (\Throwable $e) {
                 $errors[] = ['row' => $i + 1, 'reason' => $e->getMessage()];

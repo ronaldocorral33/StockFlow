@@ -5,6 +5,7 @@ config/config.php
 *.xlsx
 *.xls
 control_jerseys*.html
+/backups/
 
 # Artefactos del entorno / runtime, no forman parte del código.
 .claude/

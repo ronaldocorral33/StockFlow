@@ -4,7 +4,7 @@ require __DIR__ . '/src/Support/bootstrap.php';
 use App\Auth;
 use App\Models\AttributeDefinition;
 
-$userId = require_login();
+['user_id' => $userId, 'business_id' => $businessId] = require_business();
 $user = Auth::currentUser();
 if ($user['onboarded_at'] !== null) {
     header('Location: ' . url('dashboard.php'));
@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!isset($templates[$key])) {
         $error = 'Elige una plantilla válida.';
     } else {
-        AttributeDefinition::applyTemplate($userId, $key);
+        AttributeDefinition::applyTemplate($businessId, $userId, $key);
         Auth::markOnboarded($userId);
         header('Location: ' . url('dashboard.php'));
         exit;

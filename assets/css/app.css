@@ -45,6 +45,14 @@ button,input,select,textarea{font-family:inherit}
 }
 .sb-brand .name{font-weight:800; font-size:1.05rem; letter-spacing:-.02em; color:var(--ink)}
 
+.sb-business{
+  display:flex; align-items:center; gap:8px; padding:8px 12px; margin:0 0 12px;
+  background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-sm);
+}
+.sb-business .bname{font-size:.8rem; font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1}
+.sb-business .bswitch{font-size:.72rem; font-weight:600; color:var(--royal); text-decoration:none; flex:none}
+.sb-business .bswitch:hover{text-decoration:underline}
+
 .sb-nav{position:relative; display:flex; flex-direction:column; gap:2px; flex:1}
 .sb-indicator{
   position:absolute; left:0; width:100%; height:40px; background:var(--royal-soft);

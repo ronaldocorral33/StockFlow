@@ -5,8 +5,8 @@ if (!defined('APP_BOOTSTRAP')) { http_response_code(403); exit('Forbidden'); }
 
 /**
  * Valida el SQL que genera el LLM antes de ejecutarlo. Principio: nunca se confía en que el
- * modelo se limite solo al usuario correcto ni en que su SQL sea sintácticamente segura —
- * esta clase valida y el llamador sustituye el user_id real, siempre.
+ * modelo se limite solo al negocio correcto ni en que su SQL sea sintácticamente segura —
+ * esta clase valida y el llamador sustituye el business_id real, siempre.
  */
 class SqlGuard
 {
@@ -16,7 +16,15 @@ class SqlGuard
         'SLEEP', 'BENCHMARK', 'UNION', 'INFORMATION_SCHEMA', 'PERFORMANCE_SCHEMA', 'MYSQL',
     ];
 
-    private const USER_ID_TOKEN = '{{USER_ID}}';
+    /**
+     * Columnas de identidad que el LLM puede referenciar, cada una solo vía su token.
+     * business_id es el límite real de tenant (obligatorio); user_id identifica al empleado
+     * que hizo la acción y es opcional (ej. "qué capturó cada quién" dentro del mismo negocio).
+     */
+    private const SCOPE_COLUMNS = [
+        'business_id' => ['token' => '{{BUSINESS_ID}}', 'required' => true],
+        'user_id'     => ['token' => '{{USER_ID}}',     'required' => false],
+    ];
 
     /** @param string[] $allowedTables nombres de tabla permitidos, en minúsculas. */
     public static function validate(string $raw, array $allowedTables): array
@@ -55,21 +63,35 @@ class SqlGuard
             }
         }
 
-        if (substr_count($body, self::USER_ID_TOKEN) < 1) {
-            return self::reject('La consulta no incluye el filtro obligatorio de usuario.');
-        }
+        // Cada columna de identidad debe aparecer EXACTAMENTE como "[alias.]columna = {{TOKEN}}" —
+        // nunca combinada con OR, comparada contra un literal, o repetida de otra forma. Esto evita
+        // que el modelo (o una pregunta con prompt injection) cuele un "OR business_id = 1" que se
+        // colaría igual de "válido" si solo revisáramos que el token existe en algún lugar.
+        // OJO: cada token contiene su propio nombre de columna en mayúsculas, así que primero hay
+        // que quitar los tokens del texto antes de contar menciones sueltas de la columna.
+        foreach (self::SCOPE_COLUMNS as $column => $cfg) {
+            $occurrences = substr_count($body, $cfg['token']);
+            if ($cfg['required'] && $occurrences < 1) {
+                return self::reject("La consulta no incluye el filtro obligatorio de negocio.");
+            }
+            if ($occurrences === 0) {
+                // Columna opcional ausente: aún así hay que asegurar que no se mencione "a mano".
+                if (preg_match('/\b' . $column . '\b/i', $body)) {
+                    return self::reject("La consulta menciona $column sin usar su token obligatorio.");
+                }
+                continue;
+            }
 
-        // Toda mención de user_id debe ser EXACTAMENTE "[alias.]user_id = {{USER_ID}}" — nunca
-        // combinada con OR, comparada contra un literal, o repetida de otra forma. Esto evita que
-        // el modelo (o una pregunta con prompt injection) cuele un "OR user_id = 1" que se colaría
-        // igual de "válido" si solo revisáramos que el token existe en algún lugar de la consulta.
-        // OJO: el propio token {{USER_ID}} contiene la subcadena "USER_ID", así que primero hay que
-        // quitar los tokens del texto antes de contar menciones sueltas de la columna user_id.
-        preg_match_all('/(?:\w+\.)?user_id\s*=\s*' . preg_quote(self::USER_ID_TOKEN, '/') . '/i', $body, $safeMentions);
-        $bodyWithoutTokens = str_replace(self::USER_ID_TOKEN, '', $body);
-        preg_match_all('/\buser_id\b/i', $bodyWithoutTokens, $allMentions);
-        if (count($allMentions[0]) !== count($safeMentions[0])) {
-            return self::reject('La consulta manipula el filtro de usuario de forma no permitida.');
+            preg_match_all(
+                '/(?:\w+\.)?' . $column . '\s*=\s*' . preg_quote($cfg['token'], '/') . '/i',
+                $body,
+                $safeMentions
+            );
+            $bodyWithoutTokens = str_replace($cfg['token'], '', $body);
+            preg_match_all('/\b' . $column . '\b/i', $bodyWithoutTokens, $allMentions);
+            if (count($allMentions[0]) !== count($safeMentions[0])) {
+                return self::reject("La consulta manipula el filtro de $column de forma no permitida.");
+            }
         }
 
         $body = self::enforceLimit($body);
@@ -77,10 +99,16 @@ class SqlGuard
         return ['valid' => true, 'sql' => $body, 'reason' => null];
     }
 
-    /** Sustituye el token {{USER_ID}} por el entero real, SIEMPRE después de validate(). */
+    /** Sustituye {{BUSINESS_ID}} por el entero real, SIEMPRE después de validate(). */
+    public static function scopeToBusiness(string $validatedSql, int $businessId): string
+    {
+        return str_replace(self::SCOPE_COLUMNS['business_id']['token'], (string)$businessId, $validatedSql);
+    }
+
+    /** Sustituye {{USER_ID}} si está presente (no-op si el modelo no lo usó). */
     public static function scopeToUser(string $validatedSql, int $userId): string
     {
-        return str_replace(self::USER_ID_TOKEN, (string)$userId, $validatedSql);
+        return str_replace(self::SCOPE_COLUMNS['user_id']['token'], (string)$userId, $validatedSql);
     }
 
     private static function reject(string $reason): array

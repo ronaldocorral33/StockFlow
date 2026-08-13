@@ -2,21 +2,24 @@
 require dirname(__DIR__) . '/src/Support/bootstrap.php';
 
 use App\Models\InventoryItem;
+use App\Services\Authz;
 
-$userId = require_login(true);
+['user_id' => $userId, 'business_id' => $businessId] = require_business(true);
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 if ($method === 'GET' && $action === 'meta') {
+    Authz::require('view', 'inventory_items');
     json_response([
-        'categories' => InventoryItem::distinctCategories($userId),
-        'purchase_orders' => InventoryItem::distinctPurchaseOrders($userId),
+        'categories' => InventoryItem::distinctCategories($businessId),
+        'purchase_orders' => InventoryItem::distinctPurchaseOrders($businessId),
     ]);
 }
 
 if ($method === 'GET' && $id > 0) {
-    $item = InventoryItem::find($id, $userId);
+    Authz::require('view', 'inventory_items');
+    $item = InventoryItem::find($id, $businessId);
     if (!$item) {
         json_response(['error' => 'No encontrado'], 404);
     }
@@ -24,6 +27,7 @@ if ($method === 'GET' && $id > 0) {
 }
 
 if ($method === 'GET') {
+    Authz::require('view', 'inventory_items');
     $filters = [
         'q' => $_GET['q'] ?? '',
         'status' => $_GET['status'] ?? '',
@@ -32,7 +36,7 @@ if ($method === 'GET') {
         'sort' => $_GET['sort'] ?? 'created_at',
         'dir' => $_GET['dir'] ?? 'desc',
     ];
-    json_response(['items' => InventoryItem::list($userId, $filters)]);
+    json_response(['items' => InventoryItem::list($businessId, $filters)]);
 }
 
 if (in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
@@ -40,35 +44,40 @@ if (in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
 }
 
 if ($method === 'POST' && $action === 'sell' && $id > 0) {
+    Authz::require('sell', 'inventory_items');
     $body = json_body();
     if (!isset($body['sale_price']) || !is_numeric($body['sale_price'])) {
         json_response(['error' => 'Precio de venta inválido'], 422);
     }
-    InventoryItem::sell($id, $userId, (float)$body['sale_price'], $body['sale_date'] ?? date('Y-m-d'));
+    InventoryItem::sell($id, $businessId, (float)$body['sale_price'], $body['sale_date'] ?? date('Y-m-d'));
     json_response(['ok' => true]);
 }
 
 if ($method === 'POST' && $action === 'bulk-sell') {
+    Authz::require('sell', 'inventory_items');
     $body = json_body();
-    $count = InventoryItem::bulkSell($userId, $body['rows'] ?? [], $body['sale_date'] ?? date('Y-m-d'));
+    $count = InventoryItem::bulkSell($businessId, $body['rows'] ?? [], $body['sale_date'] ?? date('Y-m-d'));
     json_response(['ok' => true, 'count' => $count]);
 }
 
 if ($method === 'POST' && $action === 'bulk-arrival') {
+    Authz::require('update', 'inventory_items');
     $body = json_body();
-    $count = InventoryItem::bulkArrival($userId, $body['ids'] ?? [], $body['arrival_date'] ?? date('Y-m-d'));
+    $count = InventoryItem::bulkArrival($businessId, $body['ids'] ?? [], $body['arrival_date'] ?? date('Y-m-d'));
     json_response(['ok' => true, 'count' => $count]);
 }
 
 if ($method === 'POST' && $action === 'void-sale' && $id > 0) {
-    InventoryItem::voidSale($id, $userId);
+    Authz::require('sell', 'inventory_items');
+    InventoryItem::voidSale($id, $businessId);
     json_response(['ok' => true]);
 }
 
 if ($method === 'POST' && $action === '') {
+    Authz::require('create', 'inventory_items');
     $body = json_body();
     try {
-        $newId = InventoryItem::create($userId, $body);
+        $newId = InventoryItem::create($businessId, $userId, $body);
         json_response(['ok' => true, 'id' => $newId]);
     } catch (\InvalidArgumentException $e) {
         json_response(['error' => $e->getMessage()], 422);
@@ -76,8 +85,9 @@ if ($method === 'POST' && $action === '') {
 }
 
 if ($method === 'PUT' && $id > 0) {
+    Authz::require('update', 'inventory_items');
     try {
-        InventoryItem::update($id, $userId, json_body());
+        InventoryItem::update($id, $businessId, $userId, json_body());
         json_response(['ok' => true]);
     } catch (\InvalidArgumentException $e) {
         json_response(['error' => $e->getMessage()], 422);
@@ -85,7 +95,8 @@ if ($method === 'PUT' && $id > 0) {
 }
 
 if ($method === 'DELETE' && $id > 0) {
-    InventoryItem::delete($id, $userId);
+    Authz::require('delete', 'inventory_items');
+    InventoryItem::delete($id, $businessId);
     json_response(['ok' => true]);
 }
 

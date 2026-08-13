@@ -3,7 +3,7 @@ require __DIR__ . '/src/Support/bootstrap.php';
 
 use App\Models\AttributeDefinition;
 
-$userId = require_login();
+['user_id' => $userId, 'business_id' => $businessId] = require_business();
 $notice = null;
 $error = null;
 
@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['do'] ?? '');
     try {
         if ($action === 'create') {
-            AttributeDefinition::create($userId, [
+            AttributeDefinition::create($businessId, $userId, [
                 'label' => $_POST['label'] ?? '',
                 'field_type' => $_POST['field_type'] ?? 'text',
                 'options' => $_POST['options'] ?? '',
@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $notice = 'Campo agregado.';
         } elseif ($action === 'update') {
             $id = (int)$_POST['id'];
-            AttributeDefinition::update($id, $userId, [
+            AttributeDefinition::update($id, $businessId, [
                 'label' => $_POST['label'] ?? '',
                 'field_type' => $_POST['field_type'] ?? 'text',
                 'options' => $_POST['options'] ?? '',
@@ -31,17 +31,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             $notice = 'Campo actualizado.';
         } elseif ($action === 'delete') {
-            AttributeDefinition::delete((int)$_POST['id'], $userId);
+            AttributeDefinition::delete((int)$_POST['id'], $businessId);
             $notice = 'Campo eliminado.';
         } elseif ($action === 'move') {
-            $fields = AttributeDefinition::listForUser($userId);
+            $fields = AttributeDefinition::listForBusiness($businessId);
             $ids = array_column($fields, 'id');
             $id = (int)$_POST['id'];
             $dir = $_POST['dir'] === 'up' ? -1 : 1;
             $pos = array_search($id, $ids, true);
             if ($pos !== false && isset($ids[$pos + $dir])) {
                 [$ids[$pos], $ids[$pos + $dir]] = [$ids[$pos + $dir], $ids[$pos]];
-                AttributeDefinition::reorder($userId, $ids);
+                AttributeDefinition::reorder($businessId, $ids);
             }
         }
     } catch (\InvalidArgumentException $e) {
@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$fields = AttributeDefinition::listForUser($userId);
+$fields = AttributeDefinition::listForBusiness($businessId);
 ?>
 <!DOCTYPE html>
 <html lang="es">

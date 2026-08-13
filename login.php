@@ -11,13 +11,18 @@ if (Auth::currentUserId() !== null) {
 $error = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
-    $email = (string)($_POST['email'] ?? '');
-    $password = (string)($_POST['password'] ?? '');
-    if (Auth::attempt($email, $password)) {
-        header('Location: ' . url('dashboard.php'));
-        exit;
+    if (rate_limit_hit('login:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), 900, 10)) {
+        $error = 'Demasiados intentos. Espera unos minutos e intenta de nuevo.';
+    } else {
+        $email = (string)($_POST['email'] ?? '');
+        $password = (string)($_POST['password'] ?? '');
+        if (Auth::attempt($email, $password)) {
+            unset($_SESSION['active_business_id']);
+            header('Location: ' . url('dashboard.php'));
+            exit;
+        }
+        $error = 'Correo o contraseña incorrectos.';
     }
-    $error = 'Correo o contraseña incorrectos.';
 }
 ?>
 <!DOCTYPE html>

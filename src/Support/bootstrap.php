@@ -24,10 +24,14 @@ $config = require dirname(__DIR__, 2) . '/config/config.php';
 define('APP_CONFIG', $config);
 
 session_name($config['session']['name']);
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (($_SERVER['SERVER_PORT'] ?? null) == 443)
+    || !empty($config['session']['force_secure']);
 session_set_cookie_params([
     'lifetime' => 0,
     'path' => APP_BASE_URL !== '' ? APP_BASE_URL : '/',
     'httponly' => true,
     'samesite' => 'Lax',
+    'secure' => $isHttps,
 ]);
 session_start();

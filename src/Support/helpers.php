@@ -2,6 +2,8 @@
 if (!defined('APP_BOOTSTRAP')) { http_response_code(403); exit('Forbidden'); }
 
 use App\Auth;
+use App\Database;
+use App\Models\Business;
 
 /** Escapa una cadena para salida segura en HTML. */
 function esc(?string $value): string
@@ -41,6 +43,56 @@ function require_login(bool $isApi = false): int
         exit;
     }
     return $userId;
+}
+
+/**
+ * Exige sesión iniciada Y un negocio activo seleccionado; regresa ambos ids.
+ * Si el usuario pertenece a exactamente 1 negocio, se auto-selecciona sin fricción.
+ * Si pertenece a 2+, hay que pasar por select_business.php primero.
+ * @return array{user_id:int, business_id:int}
+ */
+function require_business(bool $isApi = false): array
+{
+    $userId = require_login($isApi);
+
+    $businessId = $_SESSION['active_business_id'] ?? null;
+    if ($businessId !== null && !Business::isMember((int)$businessId, $userId)) {
+        $businessId = null; // ya no pertenece (removido/deshabilitado) — se re-resuelve abajo
+    }
+
+    if ($businessId === null) {
+        $businesses = Business::listForUser($userId);
+        if (count($businesses) === 1) {
+            $businessId = (int)$businesses[0]['id'];
+            $_SESSION['active_business_id'] = $businessId;
+        } else {
+            if ($isApi) {
+                json_response(['error' => 'Selecciona un negocio primero', 'businesses' => $businesses], 409);
+            }
+            header('Location: ' . url('select_business.php'));
+            exit;
+        }
+    }
+
+    return ['user_id' => $userId, 'business_id' => (int)$businessId];
+}
+
+/**
+ * Limita intentos por bucket + ventana fija (sin dependencias externas).
+ * @return bool true si YA se pasó del límite (la llamada actual debe rechazarse).
+ */
+function rate_limit_hit(string $bucket, int $windowSeconds, int $maxAttempts): bool
+{
+    $windowStart = date('Y-m-d H:i:s', intdiv(time(), $windowSeconds) * $windowSeconds);
+    $pdo = Database::connection();
+    $pdo->prepare(
+        'INSERT INTO rate_limits (bucket_key, window_start, attempts) VALUES (?, ?, 1)
+         ON DUPLICATE KEY UPDATE attempts = attempts + 1'
+    )->execute([$bucket, $windowStart]);
+
+    $stmt = $pdo->prepare('SELECT attempts FROM rate_limits WHERE bucket_key = ? AND window_start = ?');
+    $stmt->execute([$bucket, $windowStart]);
+    return (int)$stmt->fetchColumn() > $maxAttempts;
 }
 
 /** Genera (o reutiliza) el token CSRF de la sesión. */

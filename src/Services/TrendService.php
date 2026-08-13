@@ -11,7 +11,7 @@ class TrendService
     private static array $MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
     /** @return array<int, array{month:string,label:string,units:int,revenue:float,profit:float}> */
-    public static function monthlySeries(int $userId): array
+    public static function monthlySeries(int $businessId): array
     {
         $stmt = Database::connection()->prepare(
             "SELECT DATE_FORMAT(sale_date, '%Y-%m') AS month,
@@ -19,11 +19,11 @@ class TrendService
                     SUM(sale_price) AS revenue,
                     SUM(profit) AS profit
              FROM inventory_items
-             WHERE user_id = ? AND sale_date IS NOT NULL
+             WHERE business_id = ? AND sale_date IS NOT NULL
              GROUP BY month
              ORDER BY month ASC"
         );
-        $stmt->execute([$userId]);
+        $stmt->execute([$businessId]);
         return array_map(function ($row) {
             $row['label'] = self::monthLabel($row['month']);
             $row['units'] = (int)$row['units'];
@@ -45,9 +45,9 @@ class TrendService
      * con 1-2 meses usa el promedio disponible (proyección plana);
      * sin historia, regresa method='insufficient_data'.
      */
-    public static function projectNextMonths(int $userId, int $months): array
+    public static function projectNextMonths(int $businessId, int $months): array
     {
-        $history = self::monthlySeries($userId);
+        $history = self::monthlySeries($businessId);
         $n = count($history);
         $months = max(1, min(6, $months));
 
