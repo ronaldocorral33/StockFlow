@@ -1,0 +1,18 @@
+# Secretos reales (API keys, contraseñas) — nunca subir. Usa config/config.example.php como plantilla.
+config/config.php
+
+# Datos de negocio reales / archivos personales, no código del proyecto.
+*.xlsx
+*.xls
+control_jerseys*.html
+
+# Artefactos del entorno / runtime, no forman parte del código.
+.claude/
+nul
+
+# Comunes de PHP/editor/SO.
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
