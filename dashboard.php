@@ -23,7 +23,7 @@ $initials = mb_strtoupper(mb_substr($user['name'], 0, 1));
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockFlow</title>
-<link rel="stylesheet" href="<?= esc(url('assets/css/app.css')) ?>">
+<link rel="stylesheet" href="<?= esc(asset('assets/css/app.css')) ?>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
@@ -256,15 +256,15 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
 <div class="toast" id="toast"></div>
 
 <script>window.__csrf = <?= json_encode(csrf_token()) ?>;</script>
-<script src="<?= esc(url('assets/js/icons.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/api.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/attributes.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/entradas.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/salidas.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/inventario.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/reportes.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/chat.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/importExport.js')) ?>"></script>
-<script src="<?= esc(url('assets/js/app.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/icons.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/api.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/attributes.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/entradas.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/salidas.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/inventario.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/reportes.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/chat.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/importExport.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/app.js')) ?>"></script>
 </body>
 </html>

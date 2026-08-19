@@ -59,6 +59,67 @@ class AzureOpenAIClient
         return is_array($decoded) ? $decoded : null;
     }
 
+    /**
+     * Envía la conversación ofreciéndole herramientas al modelo.
+     *
+     * El modelo puede responder texto, o pedir una o varias herramientas. Nunca las
+     * ejecuta: solo emite la intención con sus argumentos.
+     *
+     * @param array $tools Definiciones neutras de ToolRegistry::definitions()
+     * @return array{text:?string, tool_calls:array, assistant_message:array}
+     */
+    public static function sendWithTools(array $messages, string $system, array $tools, int $maxTokens = 1024): array
+    {
+        $payload = self::basePayload($messages, $system, $maxTokens);
+        // Dialecto OpenAI: cada herramienta se envuelve en {type:"function", function:{...}}
+        $payload['tools'] = array_map(fn($t) => [
+            'type' => 'function',
+            'function' => [
+                'name' => $t['name'],
+                'description' => $t['description'],
+                'parameters' => $t['parameters'],
+            ],
+        ], $tools);
+
+        $data = self::request($payload);
+        $message = $data['choices'][0]['message'] ?? [];
+
+        $calls = [];
+        foreach ($message['tool_calls'] ?? [] as $tc) {
+            // Detalle importante: en OpenAI los argumentos llegan como STRING JSON,
+            // no como objeto. Hay que decodificarlos a mano.
+            $args = json_decode($tc['function']['arguments'] ?? '{}', true);
+            $calls[] = [
+                'id' => $tc['id'] ?? '',
+                'name' => $tc['function']['name'] ?? '',
+                'args' => is_array($args) ? $args : [],
+            ];
+        }
+
+        return [
+            'text' => isset($message['content']) && $message['content'] !== '' ? trim($message['content']) : null,
+            'tool_calls' => $calls,
+            // Se guarda el mensaje nativo tal cual: hay que devolvérselo al proveedor
+            // en la siguiente llamada para que sepa qué pidió.
+            'assistant_message' => $message,
+        ];
+    }
+
+    /**
+     * Mensajes con los resultados de las herramientas, en dialecto OpenAI:
+     * un mensaje `role: tool` por cada herramienta ejecutada.
+     *
+     * @param array $results [['id'=>string, 'content'=>string], ...]
+     */
+    public static function toolResultMessages(array $results): array
+    {
+        return array_map(fn($r) => [
+            'role' => 'tool',
+            'tool_call_id' => $r['id'],
+            'content' => $r['content'],
+        ], $results);
+    }
+
     private static function basePayload(array $messages, string $system, int $maxTokens): array
     {
         return [

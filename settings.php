@@ -57,7 +57,7 @@ $fields = AttributeDefinition::listForBusiness($businessId);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Configuración de campos · StockFlow</title>
-<link rel="stylesheet" href="<?= esc(url('assets/css/app.css')) ?>">
+<link rel="stylesheet" href="<?= esc(asset('assets/css/app.css')) ?>">
 </head>
 <body>
 <div class="settings-shell">

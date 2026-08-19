@@ -33,7 +33,7 @@ const Reportes = (() => {
     document.getElementById('kpis-stock').innerHTML = `
       <div class="kpi in"><div class="lbl">${icon('package', 14)} Piezas en stock</div><div class="val" data-raw="${k.count}" data-format="int">0</div></div>
       <div class="kpi r"><div class="lbl">${icon('dollar', 14)} Dinero invertido</div><div class="val" data-raw="${k.invested}" data-format="money">$0</div></div>
-      <div class="kpi g"><div class="lbl">${icon('trendUp', 14)} Venta potencial</div><div class="val">${k.potential_revenue != null ? mx(k.potential_revenue) : 'Sin historial'}</div></div>
+      <div class="kpi g"><div class="lbl">${icon('trendUp', 14)} Venta potencial estimada</div><div class="val">${k.potential_revenue != null ? mx(k.potential_revenue) : 'Sin historial'}</div><div class="sub">${k.avg_historical_sale != null ? `${k.count} piezas × ${mx(k.avg_historical_sale)} promedio de venta` : 'aún no hay ventas para estimar'}</div></div>
       <div class="kpi"><div class="lbl">${icon('sparkle', 14)} Ganancia potencial</div><div class="val pos">${k.potential_profit != null ? mx(k.potential_profit) : '—'}</div></div>`;
     animateKpis('kpis-stock');
   }

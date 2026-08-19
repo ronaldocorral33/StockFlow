@@ -76,7 +76,70 @@ class ClaudeClient
         return null;
     }
 
-    /** Transporte HTTP compartido por send() y sendStructured(). */
+    /**
+     * Envía la conversación ofreciéndole herramientas al modelo (dialecto Anthropic).
+     *
+     * @param array $tools Definiciones neutras de ToolRegistry::definitions()
+     * @return array{text:?string, tool_calls:array, assistant_message:array}
+     */
+    public static function sendWithTools(array $messages, string $system, array $tools, int $maxTokens = 1024): array
+    {
+        $data = self::request([
+            'model' => APP_CONFIG['anthropic']['model'],
+            'max_tokens' => $maxTokens,
+            'system' => $system,
+            'messages' => $messages,
+            // Dialecto Anthropic: el esquema se llama input_schema, no parameters.
+            'tools' => array_map(fn($t) => [
+                'name' => $t['name'],
+                'description' => $t['description'],
+                'input_schema' => $t['parameters'],
+            ], $tools),
+        ]);
+
+        $text = '';
+        $calls = [];
+        foreach ($data['content'] ?? [] as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $text .= $block['text'];
+            } elseif (($block['type'] ?? '') === 'tool_use') {
+                // A diferencia de OpenAI, aquí los argumentos ya vienen como objeto.
+                $calls[] = [
+                    'id' => $block['id'] ?? '',
+                    'name' => $block['name'] ?? '',
+                    'args' => is_array($block['input'] ?? null) ? $block['input'] : [],
+                ];
+            }
+        }
+
+        return [
+            'text' => trim($text) !== '' ? trim($text) : null,
+            'tool_calls' => $calls,
+            // Anthropic espera de vuelta el arreglo COMPLETO de bloques, no solo el texto.
+            'assistant_message' => ['role' => 'assistant', 'content' => $data['content'] ?? []],
+        ];
+    }
+
+    /**
+     * Resultados de herramientas en dialecto Anthropic: UN SOLO mensaje de rol `user`
+     * que contiene todos los bloques tool_result (OpenAI, en cambio, usa un mensaje por
+     * herramienta con rol `tool`). Esta diferencia es justo lo que la fachada esconde.
+     *
+     * @param array $results [['id'=>string, 'content'=>string], ...]
+     */
+    public static function toolResultMessages(array $results): array
+    {
+        return [[
+            'role' => 'user',
+            'content' => array_map(fn($r) => [
+                'type' => 'tool_result',
+                'tool_use_id' => $r['id'],
+                'content' => $r['content'],
+            ], $results),
+        ]];
+    }
+
+    /** Transporte HTTP compartido por send(), sendStructured() y sendWithTools(). */
     private static function request(array $payload): array
     {
         $cfg = APP_CONFIG['anthropic'];

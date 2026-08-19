@@ -42,6 +42,39 @@ class Llm
     }
 
     /**
+     * Envía la conversación ofreciéndole herramientas al modelo.
+     *
+     * El modelo puede: (a) responder texto, o (b) pedir una o más herramientas.
+     * Nunca ejecuta nada — solo emite la intención. Ejecutar es trabajo de PHP.
+     *
+     * @return array{text:?string, tool_calls:array, assistant_message:array}
+     */
+    public static function sendWithTools(array $messages, string $system, array $tools, int $maxTokens = 1024): array
+    {
+        return match (self::provider()) {
+            'azure_openai' => AzureOpenAIClient::sendWithTools($messages, $system, $tools, $maxTokens),
+            'anthropic' => ClaudeClient::sendWithTools($messages, $system, $tools, $maxTokens),
+            default => throw new \RuntimeException('Ningún proveedor de LLM está configurado.'),
+        };
+    }
+
+    /**
+     * Convierte los resultados de las herramientas en mensajes que el proveedor entienda.
+     * OpenAI quiere un mensaje por herramienta; Anthropic quiere uno solo con varios
+     * bloques. El llamador no necesita saberlo.
+     *
+     * @param array $results [['id'=>string, 'content'=>string], ...]
+     */
+    public static function toolResultMessages(array $results): array
+    {
+        return match (self::provider()) {
+            'azure_openai' => AzureOpenAIClient::toolResultMessages($results),
+            'anthropic' => ClaudeClient::toolResultMessages($results),
+            default => throw new \RuntimeException('Ningún proveedor de LLM está configurado.'),
+        };
+    }
+
+    /**
      * Igual que send(), pero exige que la respuesta cumpla un JSON Schema.
      * Cada proveedor lo consigue con un mecanismo distinto (OpenAI: response_format;
      * Anthropic: herramienta forzada) — la fachada esconde esa diferencia.

@@ -14,6 +14,8 @@ if ($method === 'GET' && $action === 'meta') {
     json_response([
         'categories' => InventoryItem::distinctCategories($businessId),
         'purchase_orders' => InventoryItem::distinctPurchaseOrders($businessId),
+        // Base para estimar el valor de las piezas que aún no tienen precio asignado.
+        'avg_sold_price' => InventoryItem::avgSoldPrice($businessId),
     ]);
 }
 

@@ -206,6 +206,18 @@ class InventoryItem
         return $stmt->fetchAll();
     }
 
+    /** Precio de venta promedio de lo YA vendido. Base para estimar el valor del stock sin precio. */
+    public static function avgSoldPrice(int $businessId): ?float
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT AVG(sale_price) FROM inventory_items
+             WHERE business_id = ? AND sale_date IS NOT NULL AND sale_price IS NOT NULL'
+        );
+        $stmt->execute([$businessId]);
+        $avg = $stmt->fetchColumn();
+        return $avg !== null && $avg !== false ? round((float)$avg) : null;
+    }
+
     private static function numOrNull($v): ?float
     {
         if ($v === null || $v === '') {

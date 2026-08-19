@@ -6,6 +6,7 @@ const Inventario = (() => {
   let editingId = null;
   let sellingId = null;
   let metaLoaded = false;
+  let avgSoldPrice = null; // precio de venta promedio histórico, para estimar piezas sin precio
 
   const FIXED_COLS = [
     { k: 'name', t: 'Nombre' },
@@ -28,6 +29,7 @@ const Inventario = (() => {
     const pedSel = document.getElementById('filt-pedido');
     pedSel.innerHTML = '<option value="">Todos los pedidos</option>' +
       meta.purchase_orders.map(p => `<option value="${p.id}">#${p.order_number}</option>`).join('');
+    avgSoldPrice = meta.avg_sold_price != null ? Number(meta.avg_sold_price) : null;
     metaLoaded = true;
   }
 
@@ -56,11 +58,23 @@ const Inventario = (() => {
   function renderKpis(items) {
     const stock = items.filter(r => !r.sale_date);
     const invCost = stock.reduce((s, r) => s + Number(r.total_cost || 0), 0);
-    const potVenta = stock.reduce((s, r) => s + Number(r.sale_price || 0), 0);
+
+    // Venta potencial = piezas en stock × precio de venta promedio histórico.
+    // Se usa SIEMPRE el promedio, incluso en las piezas que ya traen un precio propio:
+    // una sola base de cálculo hace que el número sea comparable entre periodos y fácil
+    // de explicar. (Antes se sumaba solo el precio de las pocas que lo tenían, lo que
+    // ignoraba casi todo el inventario y daba una cifra sin sentido.)
+    const potVenta = avgSoldPrice != null ? stock.length * avgSoldPrice : 0;
+
+    const sub = !stock.length ? ''
+      : avgSoldPrice != null
+        ? `${stock.length} piezas × ${mx(avgSoldPrice)} promedio de venta`
+        : 'aún no hay ventas registradas para estimar';
+
     document.getElementById('kpis-inv').innerHTML = `
       <div class="kpi in"><div class="lbl">${icon('package', 14)} Piezas visibles</div><div class="val" data-raw="${items.length}" data-format="int">0</div></div>
       <div class="kpi r"><div class="lbl">${icon('dollar', 14)} Invertido (en stock)</div><div class="val" data-raw="${invCost}" data-format="money">$0</div></div>
-      <div class="kpi g"><div class="lbl">${icon('trendUp', 14)} Venta potencial (con precio puesto)</div><div class="val" data-raw="${potVenta}" data-format="money">$0</div></div>`;
+      <div class="kpi g"><div class="lbl">${icon('trendUp', 14)} Venta potencial estimada</div><div class="val" data-raw="${potVenta}" data-format="money">$0</div><div class="sub">${sub}</div></div>`;
     animateKpis('kpis-inv');
   }
 

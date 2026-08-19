@@ -16,6 +16,23 @@ function url(string $path = ''): string
     return APP_BASE_URL . '/' . ltrim($path, '/');
 }
 
+/**
+ * URL de un archivo estático (CSS/JS) con "cache busting".
+ *
+ * El navegador guarda en caché los .js y .css. Sin esto, al cambiar un archivo el
+ * usuario sigue viendo la versión vieja hasta que limpia el caché a mano — un bug
+ * de los que hacen perder horas ("ya lo arreglé pero no se ve el cambio").
+ *
+ * Al colgarle la fecha de modificación del archivo (?v=...), la URL cambia sola cada
+ * vez que el contenido cambia, y el navegador se ve obligado a bajarlo de nuevo.
+ */
+function asset(string $path): string
+{
+    $full = dirname(__DIR__, 2) . '/' . ltrim($path, '/');
+    $version = is_file($full) ? filemtime($full) : time();
+    return url($path) . '?v=' . $version;
+}
+
 require __DIR__ . '/autoload.php';
 require __DIR__ . '/helpers.php';
 require __DIR__ . '/icons.php';

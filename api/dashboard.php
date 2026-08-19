@@ -2,6 +2,7 @@
 require dirname(__DIR__) . '/src/Support/bootstrap.php';
 
 use App\Database;
+use App\Models\InventoryItem;
 use App\Services\TrendService;
 use App\Services\Authz;
 
@@ -35,23 +36,24 @@ if ($action === 'kpis') {
 }
 
 if ($action === 'stock-kpis') {
+    // Misma definición de "venta potencial" que usa la pestaña Inventario:
+    // SIEMPRE piezas en stock × precio de venta promedio histórico. Una sola base
+    // de cálculo, aunque algunas piezas ya traigan un precio propio asignado.
     $stock = scalarQuery($pdo,
         'SELECT COUNT(*) AS n, COALESCE(SUM(total_cost),0) AS invested
          FROM inventory_items WHERE business_id = ? AND sale_date IS NULL',
         [$businessId]
     );
-    $avgSale = scalarQuery($pdo,
-        'SELECT AVG(sale_price) AS avg_sale FROM inventory_items WHERE business_id = ? AND sale_date IS NOT NULL',
-        [$businessId]
-    )['avg_sale'];
+    $avgSale = InventoryItem::avgSoldPrice($businessId);
 
     $n = (int)$stock['n'];
     $invested = (float)$stock['invested'];
-    $potentialRevenue = $avgSale !== null ? round($avgSale * $n) : null;
+    $potentialRevenue = $avgSale !== null ? round($n * $avgSale) : null;
+
     json_response([
         'count' => $n,
         'invested' => $invested,
-        'avg_historical_sale' => $avgSale !== null ? round((float)$avgSale) : null,
+        'avg_historical_sale' => $avgSale,
         'potential_revenue' => $potentialRevenue,
         'potential_profit' => $potentialRevenue !== null ? round($potentialRevenue - $invested) : null,
     ]);
