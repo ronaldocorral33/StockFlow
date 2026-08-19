@@ -225,6 +225,7 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
   border-radius:var(--radius-sm); padding:11px 15px; margin-bottom:12px; font-size:.85rem; font-weight:600; color:var(--royal-deep);
 }
 .bulkbar.show{display:flex}
+.chat-head{display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap}
 .chat-log{padding:18px; min-height:360px; max-height:60vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px}
 .chat-inputrow{display:flex; gap:9px; margin-top:12px}
 .chat-inputrow input{flex:1; font:inherit; font-size:.9rem; border:1px solid var(--line); border-radius:var(--radius-sm); padding:11px 14px; background:var(--paper)}

@@ -191,8 +191,13 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
 
       <section id="chat" class="view">
         <div class="cap-head">
-          <h3><?= icon('chat') ?> Pregúntale a tu inventario</h3>
-          <p>Hazle preguntas en lenguaje natural sobre tus ventas, compras o proyecciones. Ejemplos: "¿Cuántas piezas tengo en stock?", "¿Cuál es mi producto más rentable?", "¿Cuánto voy a vender el próximo mes?"</p>
+          <div class="chat-head">
+            <div>
+              <h3><?= icon('chat') ?> Pregúntale a tu inventario</h3>
+              <p style="margin-bottom:0">Hazle preguntas en lenguaje natural sobre tus ventas, compras o proyecciones. Recuerda las últimas preguntas del hilo, así que puedes dar seguimiento: "¿Cuánto vendí en julio?" y luego "¿y en junio?".</p>
+            </div>
+            <button class="btn ghost sm" onclick="Chat.reset()" title="Empieza un hilo nuevo, sin el contexto anterior"><?= icon('plus', 14) ?> Nueva conversación</button>
+          </div>
         </div>
         <div class="tablecard chat-log" id="chat-log"></div>
         <div class="chat-inputrow">

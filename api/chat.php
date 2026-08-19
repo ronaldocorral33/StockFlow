@@ -3,6 +3,7 @@ require dirname(__DIR__) . '/src/Support/bootstrap.php';
 
 use App\Database;
 use App\Services\Authz;
+use App\Services\ChatHistory;
 use App\Services\Llm;
 use App\Services\Tools\ToolContext;
 use App\Services\Tools\AgentRunner;
@@ -56,6 +57,12 @@ $question = trim((string)($body['question'] ?? ''));
 if ($question === '') {
     json_response(['error' => 'Escribe una pregunta.'], 422);
 }
+
+// Identificador del hilo, generado por el cliente. Se valida el formato pero NO se
+// confía en él: el historial se filtra además por negocio y usuario de la sesión.
+$conversationId = $body['conversation_id'] ?? null;
+$GLOBALS['conversationId'] = ChatHistory::isValidId($conversationId) ? $conversationId : null;
+$conversationId = $GLOBALS['conversationId'];
 // Todo lo que entra al prompt es costo real y superficie de abuso. El rate limit acota
 // CUÁNTAS preguntas; esto acota QUÉ TAN GRANDE puede ser cada una.
 // mb_strlen (no strlen) porque en UTF-8 una "ñ" son 2 bytes pero 1 carácter.
@@ -77,10 +84,14 @@ if (!Llm::isConfigured()) {
 function logChat(int $businessId, int $userId, string $question, ?string $sql, ?bool $sqlValid, ?string $reason, bool $isProjection, ?int $rowCount, ?string $answer): void
 {
     $stmt = Database::connection()->prepare(
-        'INSERT INTO chat_messages (business_id, user_id, question, generated_sql, sql_valid, rejection_reason, is_projection, row_count, answer)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO chat_messages (business_id, user_id, conversation_id, question, generated_sql, sql_valid, rejection_reason, is_projection, row_count, answer)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    $stmt->execute([$businessId, $userId, $question, $sql, $sqlValid === null ? null : (int)$sqlValid, $reason, (int)$isProjection, $rowCount, $answer]);
+    $stmt->execute([
+        $businessId, $userId, $GLOBALS['conversationId'] ?? null,
+        $question, $sql, $sqlValid === null ? null : (int)$sqlValid, $reason,
+        (int)$isProjection, $rowCount, $answer,
+    ]);
 }
 
 /** Falla controlada del proveedor: detalle al log, mensaje neutro al usuario. Nunca regresa. */
@@ -99,12 +110,16 @@ function llmFailure(int $businessId, int $userId, string $question, string $stag
 $t0 = microtime(true);
 $ctx = new ToolContext($businessId, $userId);
 
+// Memoria: el hilo lo identifica el cliente, pero el historial SIEMPRE se busca
+// acotado al negocio y usuario de la sesión — un id ajeno no trae nada.
+$history = ChatHistory::messagesFor($businessId, $userId, $conversationId);
+
 // ---------------------------------------------------------------
 // El agente corre su ciclo: modelo → herramienta → modelo → ... hasta que
 // decide que ya puede responder, o hasta que topa con el límite de pasos.
 // ---------------------------------------------------------------
 try {
-    $run = AgentRunner::run($question, $ctx, SYSTEM_PROMPT, 1200);
+    $run = AgentRunner::run($question, $ctx, SYSTEM_PROMPT, 1200, null, $history);
 } catch (\Throwable $e) {
     llmFailure($businessId, $userId, $question, 'agente', $e, $t0);
 }

@@ -1,5 +1,18 @@
-/* Tab "Asistente": chatbot texto-a-SQL (RAG) contra el propio inventario del usuario. */
+/* Tab "Asistente": agente con herramientas sobre el inventario del propio negocio. */
 const Chat = (() => {
+  // Identificador del hilo de conversación. Se genera al cargar la página: todas las
+  // preguntas de esta sesión comparten contexto, y "Nueva conversación" lo renueva.
+  let conversationId = newConversationId();
+
+  function newConversationId() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    // Respaldo para navegadores sin randomUUID.
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
   function bubble(role, html) {
     const log = document.getElementById('chat-log');
     const div = document.createElement('div');
@@ -28,12 +41,19 @@ const Chat = (() => {
     const thinking = bubble('assistant', '<span class="muted">Pensando…</span>');
 
     try {
-      const res = await Api.post('chat.php', { question });
+      const res = await Api.post('chat.php', { question, conversation_id: conversationId });
       thinking.innerHTML = esc(res.answer) + rowsTable(res.rows);
     } catch (e) {
       thinking.innerHTML = '<span class="muted">No pude responder esa pregunta.</span>';
     }
   }
 
-  return { send };
+  /** Corta el hilo: las siguientes preguntas empiezan sin contexto previo. */
+  function reset() {
+    conversationId = newConversationId();
+    document.getElementById('chat-log').innerHTML = '';
+    bubble('assistant', '<span class="muted">Nueva conversación. Las preguntas anteriores ya no se toman en cuenta.</span>');
+  }
+
+  return { send, reset };
 })();

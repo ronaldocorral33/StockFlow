@@ -45,11 +45,14 @@ class AgentRunner
         ToolContext $ctx,
         string $systemPrompt,
         int $maxTokens = 1200,
-        ?callable $llm = null
+        ?callable $llm = null,
+        array $history = []
     ): array {
         $llm ??= fn(array $m, string $s, array $t, int $mt) => Llm::sendWithTools($m, $s, $t, $mt);
         $tools = ToolRegistry::definitions();
-        $messages = [['role' => 'user', 'content' => $question]];
+        // El historial previo va ANTES de la pregunta actual, para que el modelo
+        // entienda referencias como "¿y en junio?" o "muéstrame más de esos".
+        $messages = array_merge($history, [['role' => 'user', 'content' => $question]]);
 
         $state = [
             'answer' => null,
