@@ -121,6 +121,54 @@ if ($action === 'slow-movers') {
     json_response(['rows' => $stmt->fetchAll()]);
 }
 
+if ($action === 'order-profitability') {
+    // Rentabilidad pedido por pedido: cuánto pusiste, cuánto ha regresado, y en qué
+    // punto va tu posición neta.
+    //
+    // Las tres cifras se calculan en SQL sobre TODAS las piezas del pedido, no en PHP
+    // sobre una muestra: son dinero, y una suma parcial que parece total es peor que
+    // no mostrar el dato.
+    //
+    // "recuperado" solo suma piezas VENDIDAS (sale_date IS NOT NULL). Una pieza en
+    // stock con precio sugerido no es dinero que ya entró; contarla infla el número
+    // y da una falsa sensación de que el pedido ya se pagó.
+    $stmt = $pdo->prepare(
+        'SELECT po.id, po.order_number, po.purchase_date, po.arrival_date,
+                s.name AS supplier_name,
+                COUNT(i.id) AS pieces,
+                SUM(i.sale_date IS NOT NULL) AS sold,
+                COALESCE(SUM(i.total_cost), 0) AS invested,
+                COALESCE(SUM(CASE WHEN i.sale_date IS NOT NULL THEN i.sale_price ELSE 0 END), 0) AS recovered
+         FROM purchase_orders po
+         LEFT JOIN inventory_items i ON i.purchase_order_id = po.id
+         LEFT JOIN suppliers s ON s.id = po.supplier_id
+         WHERE po.business_id = ?
+         GROUP BY po.id
+         HAVING pieces > 0
+         ORDER BY po.order_number ASC'
+    );
+    $stmt->execute([$businessId]);
+
+    $rows = array_map(function ($r) {
+        $invested = (float)$r['invested'];
+        $recovered = (float)$r['recovered'];
+        return [
+            'order_number' => (int)$r['order_number'],
+            'supplier_name' => $r['supplier_name'],
+            'purchase_date' => $r['purchase_date'],
+            'pieces' => (int)$r['pieces'],
+            'sold' => (int)$r['sold'],
+            'invested' => $invested,
+            'recovered' => $recovered,
+            // Posición neta: negativa mientras el pedido no se haya pagado solo.
+            'net' => round($recovered - $invested, 2),
+            // % de la inversión ya recuperada. Sirve para ordenar y para el tooltip.
+            'recovered_pct' => $invested > 0 ? round($recovered / $invested * 100, 1) : null,
+        ];
+    }, $stmt->fetchAll());
+
+    json_response(['rows' => $rows]);
+}
 if ($action === 'projection') {
     $months = (int)($_GET['months'] ?? 1);
     json_response(TrendService::projectNextMonths($businessId, $months));

@@ -66,6 +66,30 @@ const Inventario = (() => {
     // ignoraba casi todo el inventario y daba una cifra sin sentido.)
     const potVenta = avgSoldPrice != null ? stock.length * avgSoldPrice : 0;
 
+    // Ganancia YA REALIZADA de lo que se ve con el filtro actual.
+    // Solo cuenta piezas vendidas: una pieza en stock con precio sugerido todavía no
+    // te dio un peso, y sumarla aquí inflaría la ganancia con dinero que no ha entrado.
+    // (En este inventario hay $1,500 en precios sugeridos de piezas sin vender: la
+    // diferencia entre "lo que vale" y "lo que ya cobraste".)
+    const vendidas = items.filter(r => r.sale_date);
+    const ganancia = vendidas.reduce((s, r) => s + Number(r.profit || 0), 0);
+    const ingresos = vendidas.reduce((s, r) => s + Number(r.sale_price || 0), 0);
+    // El margen se calcula sobre ingresos, no sobre costo: es el % de cada peso
+    // vendido que te quedaste.
+    const margen = ingresos > 0 ? (ganancia / ingresos * 100) : null;
+
+    // La OTRA lectura de ganancia, la misma que el gráfico de pedidos: cuánto ha
+    // regresado contra TODO lo que costó lo que estás viendo — incluyendo lo que
+    // sigue en stock. Es negativa mientras no recuperes la inversión.
+    //
+    // Las dos conviven a propósito: "Ganancia (ya vendido)" dice si vendes con buen
+    // margen; "Neto" dice si eso que compraste ya se pagó solo. Un lote recién
+    // llegado puede tener excelente margen y aun así deberte dinero.
+    const costoTodo = items.reduce((s, r) => s + Number(r.total_cost || 0), 0);
+    const neto = ingresos - costoTodo;
+    const subGan = !vendidas.length
+      ? 'aún no hay ventas en esta vista'
+      : `${vendidas.length} de ${items.length} vendidas${margen != null ? ` · margen ${margen.toFixed(1)}%` : ''}`;
     const sub = !stock.length ? ''
       : avgSoldPrice != null
         ? `${stock.length} piezas × ${mx(avgSoldPrice)} promedio de venta`
@@ -74,7 +98,9 @@ const Inventario = (() => {
     document.getElementById('kpis-inv').innerHTML = `
       <div class="kpi in"><div class="lbl">${icon('package', 14)} Piezas visibles</div><div class="val" data-raw="${items.length}" data-format="int">0</div></div>
       <div class="kpi r"><div class="lbl">${icon('dollar', 14)} Invertido (en stock)</div><div class="val" data-raw="${invCost}" data-format="money">$0</div></div>
-      <div class="kpi g"><div class="lbl">${icon('trendUp', 14)} Venta potencial estimada</div><div class="val" data-raw="${potVenta}" data-format="money">$0</div><div class="sub">${sub}</div></div>`;
+      <div class="kpi g"><div class="lbl">${icon('trendUp', 14)} Venta potencial estimada</div><div class="val" data-raw="${potVenta}" data-format="money">$0</div><div class="sub">${sub}</div></div>
+      <div class="kpi ${ganancia < 0 ? 'r' : 'g'}"><div class="lbl">${icon('dollar', 14)} Ganancia (ya vendido)</div><div class="val" data-raw="${ganancia}" data-format="money">$0</div><div class="sub">${subGan}</div></div>
+      <div class="kpi ${neto < 0 ? 'r' : 'g'}"><div class="lbl">${icon('chart', 14)} Neto (recuperado − costo)</div><div class="val" data-raw="${neto}" data-format="money">$0</div><div class="sub">${mx(ingresos)} recuperados de ${mx(costoTodo)} invertidos</div></div>`;
     animateKpis('kpis-inv');
   }
 

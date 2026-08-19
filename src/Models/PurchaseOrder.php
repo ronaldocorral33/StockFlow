@@ -25,6 +25,60 @@ class PurchaseOrder
     }
 
     /**
+     * Devuelve el id del pedido con ese número, creándolo si no existe.
+     *
+     * Existe para la importación: en un Excel el pedido viene como un NÚMERO ("#12"),
+     * no como el id interno de la base. Sin esta traducción, el número de pedido de un
+     * archivo importado no tenía a dónde llegar y se perdía — que es exactamente por lo
+     * que 739 piezas quedaron huérfanas de pedido.
+     *
+     * Es idempotente a propósito: importar 50 filas del pedido #12 crea UN pedido, no 50.
+     */
+    public static function resolveOrCreate(int $businessId, int $actorUserId, $orderNumber, array $header = []): ?int
+    {
+        if ($orderNumber === null || $orderNumber === '') {
+            return null;
+        }
+        $number = (int)preg_replace('/[^0-9]/', '', (string)$orderNumber);
+        if ($number <= 0) {
+            return null;
+        }
+
+        $pdo = Database::connection();
+        $stmt = $pdo->prepare('SELECT id FROM purchase_orders WHERE business_id = ? AND order_number = ?');
+        $stmt->execute([$businessId, $number]);
+        $existing = $stmt->fetchColumn();
+        if ($existing !== false) {
+            return (int)$existing;
+        }
+
+        $supplierId = Supplier::resolveOrCreate($businessId, $actorUserId, $header['supplier'] ?? null);
+        $ins = $pdo->prepare(
+            'INSERT INTO purchase_orders
+             (business_id, user_id, order_number, supplier_id, purchase_date, arrival_date, item_count)
+             VALUES (?, ?, ?, ?, ?, ?, 0)'
+        );
+        $ins->execute([
+            $businessId, $actorUserId, $number, $supplierId,
+            ($header['purchase_date'] ?? null) ?: null,
+            ($header['arrival_date'] ?? null) ?: null,
+        ]);
+        return (int)$pdo->lastInsertId();
+    }
+
+    /** Recalcula item_count desde las piezas realmente vinculadas. La columna es un
+     *  contador denormalizado: si nadie lo recalcula tras importar, miente. */
+    public static function refreshItemCount(int $businessId, int $purchaseOrderId): void
+    {
+        Database::connection()
+            ->prepare(
+                'UPDATE purchase_orders po
+                 SET item_count = (SELECT COUNT(*) FROM inventory_items i WHERE i.purchase_order_id = po.id)
+                 WHERE po.id = ? AND po.business_id = ?'
+            )
+            ->execute([$purchaseOrderId, $businessId]);
+    }
+    /**
      * Crea un pedido de compra (lote) junto con sus piezas de inventario, en una transacción.
      * $header: order_number?, supplier?, purchase_date?, arrival_date?, currency, exchange_rate, shipping_total
      * $items: [{name, variant_label?, category?, subcategory?, cost?, sale_price?, attributes?}, ...]

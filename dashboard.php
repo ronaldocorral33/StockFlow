@@ -165,6 +165,19 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
         </div>
         <div class="chartcard"><h3><?= icon('dollar', 16) ?> Ganancia por <span id="groupby-label">criterio</span> (MXN)</h3><canvas id="chart-groupby-profit"></canvas></div>
 
+        <div class="section-label"><?= icon('inbox', 15) ?> Cómo va cada pedido</div>
+        <div class="chartcard">
+          <h3 style="justify-content:space-between">
+            <span><?= icon('chart', 16) ?> Costo, recuperado y ganancia por pedido (MXN)</span>
+            <select id="orders-scope" onchange="Reportes.renderOrderProfitability()" style="font:inherit;font-size:.8rem;border:1px solid var(--line);border-radius:var(--radius-sm);padding:6px 9px">
+              <option value="recientes">Últimos 12 pedidos</option>
+              <option value="todos">Todos los pedidos</option>
+            </select>
+          </h3>
+          <p class="muted" style="font-size:.79rem; margin:-4px 0 12px"><b>Neto del pedido</b> = recuperado − costo: va en rojo mientras el pedido no se paga solo. Es distinto de la "Ganancia (ya vendido)" de la pestaña Inventario, que solo mide el margen de las piezas que sí vendiste.</p>
+          <div id="orders-empty"></div>
+          <canvas id="chart-pedidos"></canvas>
+        </div>
         <div class="section-label"><?= icon('package', 15) ?> Lo que tienes en stock</div>
         <div class="kpis" id="kpis-stock"></div>
         <div class="chartcard"><h3>Lo que lleva más tiempo sin venderse</h3>
@@ -209,6 +222,36 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
   </div>
 </div>
 
+<div class="modal-bg" id="import-bg">
+  <div class="modal" style="max-width:560px">
+    <h2><span><?= icon('upload', 17) ?> Importar Excel</span><span class="x" onclick="ImportExport.close()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <p class="muted" style="font-size:.84rem; margin-bottom:14px" id="import-resumen"></p>
+
+      <label class="impopt" for="mode-sync">
+        <input type="radio" name="import-mode" id="mode-sync" value="sync" checked onchange="ImportExport.preview()">
+        <div>
+          <b>Actualizar mi inventario</b>
+          <span>Empareja cada fila con la pieza que ya tienes y la actualiza. Solo agrega lo que de verdad es nuevo. No borra nada.</span>
+        </div>
+      </label>
+
+      <label class="impopt" for="mode-add">
+        <input type="radio" name="import-mode" id="mode-add" value="add" onchange="ImportExport.preview()">
+        <div>
+          <b>Agregar como nuevo</b>
+          <span>Inserta todas las filas sin revisar si ya existen. Úsalo solo si el archivo trae únicamente piezas nuevas.</span>
+        </div>
+      </label>
+
+      <div id="import-preview" class="imppreview"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="ImportExport.close()">Cancelar</button>
+      <button class="btn primary" id="import-go" onclick="ImportExport.confirm()" disabled>Importar</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="modal-bg">
   <div class="modal">
     <h2><span id="modal-title">Editar producto</span><span class="x" onclick="Inventario.closeModal()"><?= icon('x', 18) ?></span></h2>

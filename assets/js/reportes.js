@@ -14,6 +14,7 @@ const Reportes = (() => {
     await Promise.all([
       renderKpis(), renderStockKpis(), renderTopProducts(),
       renderSalesTrend(), populateGroupByOptions(), renderSlowMovers(),
+      renderOrderProfitability(),
     ]);
     loadProjection();
   }
@@ -38,6 +39,67 @@ const Reportes = (() => {
     animateKpis('kpis-stock');
   }
 
+  /**
+   * Rentabilidad por pedido: barras agrupadas de costo / recuperado / posición neta.
+   *
+   * La tercera barra es "recuperado − costo", así que va NEGATIVA mientras el pedido
+   * no se haya pagado solo. Es intencional: un pedido reciente del que apenas vendiste
+   * dos piezas todavía te debe dinero, y esconderlo detrás de un número positivo
+   * (la ganancia solo de lo vendido) daría una idea equivocada de cómo va.
+   */
+  async function renderOrderProfitability() {
+    const { rows } = await Api.get('dashboard.php?action=order-profitability');
+    const wrap = document.getElementById('orders-empty');
+
+    if (!rows.length) {
+      if (wrap) {
+        wrap.innerHTML = `<div class="empty">${icon('package', 30)}Todavía no hay pedidos con piezas.
+          Importa tu Excel con la columna <b>Pedido</b> o registra una entrada para verlos aquí.</div>`;
+      }
+      drawChart('chart-pedidos', { type: 'bar', data: { labels: [], datasets: [] } });
+      return;
+    }
+    if (wrap) wrap.innerHTML = '';
+
+    const sel = document.getElementById('orders-scope');
+    const scope = sel ? sel.value : 'recientes';
+    const datos = scope === 'todos' ? rows : rows.slice(-12);
+
+    drawChart('chart-pedidos', {
+      type: 'bar',
+      data: {
+        labels: datos.map(r => '#' + r.order_number),
+        datasets: [
+          { label: 'Costó', data: datos.map(r => r.invested), backgroundColor: COLORS[3] },
+          { label: 'Recuperado', data: datos.map(r => r.recovered), backgroundColor: COLORS[0] },
+          {
+            label: 'Neto del pedido',
+            data: datos.map(r => r.net),
+            // Verde si ya salió tablas, rojo si el pedido todavía te debe dinero.
+            backgroundColor: datos.map(r => (r.net >= 0 ? COLORS[1] : COLORS[5])),
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: {
+            callbacks: {
+              afterTitle: (items) => {
+                const r = datos[items[0].dataIndex];
+                const pct = r.recovered_pct != null ? ` · ${r.recovered_pct}% recuperado` : '';
+                return `${r.sold}/${r.pieces} vendidas${pct}\n${r.supplier_name || 'sin proveedor'}`;
+              },
+              label: (item) => `${item.dataset.label}: ${mx(item.parsed.y)}`,
+            },
+          },
+        },
+        scales: {
+          y: { ticks: { callback: (v) => mx(v) } },
+        },
+      },
+    });
+  }
   async function renderTopProducts() {
     const { rows } = await Api.get('dashboard.php?action=top-products');
     drawChart('chart-top-productos', {
@@ -143,5 +205,6 @@ const Reportes = (() => {
       ${note}`;
   }
 
-  return { render, loadProjection, loadGroupBy };
+  return {
+    renderOrderProfitability, render, loadProjection, loadGroupBy };
 })();

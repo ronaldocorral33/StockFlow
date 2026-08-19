@@ -79,12 +79,12 @@ class InventoryItem
         $pdo = Database::connection();
         $stmt = $pdo->prepare(
             'INSERT INTO inventory_items
-             (business_id, user_id, supplier_id, name, variant_label, category, subcategory, attributes,
+             (business_id, user_id, purchase_order_id, supplier_id, name, variant_label, category, subcategory, attributes,
               cost, shipping_cost, sale_price, purchase_date, arrival_date, sale_date)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $businessId, $actorUserId, $supplierId, $name,
+            $businessId, $actorUserId, $data['purchase_order_id'] ?? null, $supplierId, $name,
             $data['variant_label'] ?? null, $data['category'] ?? null, $data['subcategory'] ?? null,
             !empty($data['attributes']) ? json_encode($data['attributes']) : null,
             self::numOrNull($data['cost'] ?? null), self::numOrNull($data['shipping_cost'] ?? null) ?? 0,
@@ -114,6 +114,11 @@ class InventoryItem
                 $fields[] = "$col = ?";
                 $params[] = $type === 'num' ? self::numOrNull($data[$col]) : ($data[$col] ?: null);
             }
+        }
+        // El pedido se guarda como id interno, no como número: quien llama ya lo tradujo.
+        if (array_key_exists('purchase_order_id', $data)) {
+            $fields[] = 'purchase_order_id = ?';
+            $params[] = $data['purchase_order_id'] ?: null;
         }
         if (array_key_exists('supplier', $data)) {
             $fields[] = 'supplier_id = ?';
