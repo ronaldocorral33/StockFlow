@@ -5,7 +5,7 @@ use App\Database;
 use App\Services\Authz;
 use App\Services\Llm;
 use App\Services\Tools\ToolContext;
-use App\Services\Tools\ToolRegistry;
+use App\Services\Tools\AgentRunner;
 
 /** Tope de caracteres de la pregunta del usuario, antes de gastar una llamada al modelo. */
 const MAX_QUESTION_CHARS = 1000;
@@ -98,106 +98,37 @@ function llmFailure(int $businessId, int $userId, string $question, string $stag
 
 $t0 = microtime(true);
 $ctx = new ToolContext($businessId, $userId);
-$tools = ToolRegistry::definitions();
-$messages = [['role' => 'user', 'content' => $question]];
 
 // ---------------------------------------------------------------
-// PASO 1 — El modelo decide: ¿responde directo, o pide una herramienta?
+// El agente corre su ciclo: modelo → herramienta → modelo → ... hasta que
+// decide que ya puede responder, o hasta que topa con el límite de pasos.
 // ---------------------------------------------------------------
 try {
-    $turn = Llm::sendWithTools($messages, SYSTEM_PROMPT, $tools, 1200);
+    $run = AgentRunner::run($question, $ctx, SYSTEM_PROMPT, 1200);
 } catch (\Throwable $e) {
-    llmFailure($businessId, $userId, $question, 'decision', $e, $t0);
+    llmFailure($businessId, $userId, $question, 'agente', $e, $t0);
 }
 
-// Caso A: no pidió herramientas. Su texto YA es la respuesta final.
-// (Aquí es donde antes hacía falta el sentinel NEEDS_EXPLANATION: ahora es el default.)
-if (empty($turn['tool_calls'])) {
-    $answer = $turn['text'] ?? 'No pude generar una respuesta.';
-    error_log(sprintf(
-        '[chat] ok negocio=%d usuario=%d proveedor=%s herramientas=0 total_ms=%d',
-        $businessId, $userId, Llm::providerName(), (int)round((microtime(true) - $t0) * 1000)
-    ));
-    logChat($businessId, $userId, $question, null, null, null, false, null, $answer);
-    json_response(['answer' => $answer, 'rows' => []]);
-}
-
-// ---------------------------------------------------------------
-// PASO 2 — PHP ejecuta lo que el modelo pidió. El modelo no ejecuta nada.
-// ---------------------------------------------------------------
-$toolResults = [];
-$rowsForUi = [];
-$sqlUsed = null;
-$sqlValid = null;
-$rejectionReason = null;
-$rowCount = null;
-$isProjection = false;
-$usedNames = [];
-
-foreach ($turn['tool_calls'] as $call) {
-    $result = ToolRegistry::run($call['name'], $call['args'], $ctx);
-    $usedNames[] = $call['name'];
-
-    // Datos para la bitácora y para la tabla que ve el usuario.
-    if ($call['name'] === 'consultar_inventario') {
-        $sqlUsed = $result['sql_ejecutado'] ?? ($call['args']['sql'] ?? null);
-        $sqlValid = $result['ok'];
-        $rejectionReason = $result['ok'] ? null : ($result['error'] ?? null);
-        $rowCount = $result['total_filas'] ?? null;
-        if (!empty($result['filas'])) {
-            $rowsForUi = $result['filas'];
-        }
-    } elseif ($call['name'] === 'proyectar_ventas') {
-        $isProjection = true;
-        $rowCount = isset($result['proyeccion']) ? count($result['proyeccion']) : null;
-    }
-
-    $toolResults[] = ['id' => $call['id'], 'content' => json_encode($result, JSON_UNESCAPED_UNICODE)];
-}
-
-// ---------------------------------------------------------------
-// PASO 3 — Los resultados vuelven al modelo para que redacte la respuesta.
-// Este es el paso que cerraba el ciclo y que antes no existía como tal.
-// ---------------------------------------------------------------
-$messages[] = $turn['assistant_message'];
-foreach (Llm::toolResultMessages($toolResults) as $m) {
-    $messages[] = $m;
-}
-
-$t1 = microtime(true);
-try {
-    $final = Llm::sendWithTools($messages, SYSTEM_PROMPT, $tools, 1200);
-    $answer = $final['text'];
-
-    // En esta fase todavía NO hay loop: si el modelo pide otra herramienta, se le
-    // informa que por ahora solo se ejecuta una ronda. El loop llega en la fase siguiente.
-    if ($answer === null && !empty($final['tool_calls'])) {
-        $answer = 'Necesitaría consultar más datos para responder eso completamente. '
-            . 'Intenta hacer la pregunta de forma más específica.';
-        error_log('[chat] el modelo pidió una segunda ronda de herramientas (aún sin loop)');
-    }
-} catch (\Throwable $e) {
-    error_log(sprintf(
-        '[chat] fallo del proveedor en etapa=redaccion negocio=%d usuario=%d %dms: %s',
-        $businessId, $userId, (int)round((microtime(true) - $t1) * 1000), $e->getMessage()
-    ));
-    $answer = 'Obtuve los datos pero no pude redactar la respuesta. Abajo está el resultado.';
-}
-
-$answer = $answer ?? 'No pude generar una respuesta.';
+$answer = $run['answer'] ?? 'No pude generar una respuesta.';
 
 error_log(sprintf(
-    '[chat] ok negocio=%d usuario=%d proveedor=%s herramientas=%s filas=%s total_ms=%d',
-    $businessId, $userId, Llm::providerName(), implode('+', $usedNames),
-    $rowCount ?? 0, (int)round((microtime(true) - $t0) * 1000)
+    '[chat] %s negocio=%d usuario=%d proveedor=%s pasos=%d herramientas=%s filas=%s total_ms=%d',
+    $run['stop_reason'], $businessId, $userId, Llm::providerName(),
+    $run['steps'], implode('+', $run['tools_used']) ?: 'ninguna',
+    $run['row_count'] ?? 0, (int)round((microtime(true) - $t0) * 1000)
 ));
 
-logChat($businessId, $userId, $question, $sqlUsed, $sqlValid, $rejectionReason, $isProjection, $rowCount, $answer);
+logChat(
+    $businessId, $userId, $question,
+    $run['sql'], $run['sql_valid'], $run['rejection_reason'],
+    $run['is_projection'], $run['row_count'], $answer
+);
 
 json_response([
     'answer' => $answer,
-    'is_projection' => $isProjection,
-    'sql' => $sqlUsed,
-    'tools_used' => $usedNames,
-    'rows' => $rowsForUi,
+    'is_projection' => $run['is_projection'],
+    'sql' => $run['sql'],
+    'tools_used' => $run['tools_used'],
+    'steps' => $run['steps'],
+    'rows' => $run['rows'],
 ]);
