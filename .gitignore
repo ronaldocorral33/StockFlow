@@ -1,4 +1,7 @@
-# Secretos reales (API keys, contraseñas) — nunca subir. Usa config/config.example.php como plantilla.
+# Secretos reales (API keys, contraseñas) — nunca subir. Usa .env.example como plantilla.
+.env
+# config.php ya no contiene secretos (lee de .env), pero se mantiene ignorado
+# por compatibilidad con instalaciones anteriores que sí los tenían embebidos.
 config/config.php
 
 # Datos de negocio reales / archivos personales, no código del proyecto.

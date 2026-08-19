@@ -18,34 +18,71 @@ class AzureOpenAIClient
     }
 
     /**
-     * Envía una conversación a Azure OpenAI y regresa el texto de la respuesta.
+     * Envía una conversación y regresa el TEXTO de la respuesta.
      * @param array $messages [{role: 'user'|'assistant', content: string}]
      */
     public static function send(array $messages, string $system, int $maxTokens = 1024): string
+    {
+        $data = self::request(self::basePayload($messages, $system, $maxTokens));
+        return trim($data['choices'][0]['message']['content'] ?? '');
+    }
+
+    /**
+     * Envía una conversación exigiendo que la respuesta cumpla un JSON Schema
+     * (Structured Outputs). Regresa el JSON ya decodificado, no texto.
+     *
+     * `strict => true` hace que el proveedor garantice la forma del JSON: no puede
+     * devolver campos extra, ni omitir requeridos, ni usar un valor fuera del enum.
+     *
+     * @return array|null null si la respuesta no fue JSON decodificable.
+     */
+    public static function sendStructured(
+        array $messages,
+        string $system,
+        array $schema,
+        string $schemaName,
+        int $maxTokens = 1024
+    ): ?array {
+        $payload = self::basePayload($messages, $system, $maxTokens);
+        $payload['response_format'] = [
+            'type' => 'json_schema',
+            'json_schema' => [
+                'name' => $schemaName,
+                'strict' => true,
+                'schema' => $schema,
+            ],
+        ];
+
+        $data = self::request($payload);
+        $content = $data['choices'][0]['message']['content'] ?? '';
+        $decoded = json_decode($content, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private static function basePayload(array $messages, string $system, int $maxTokens): array
+    {
+        return [
+            'model' => APP_CONFIG['azure_openai']['deployment'],
+            'messages' => array_merge([['role' => 'system', 'content' => $system]], $messages),
+            // Los modelos de la familia gpt-5/o-series no aceptan "max_tokens"; usan este nombre.
+            'max_completion_tokens' => $maxTokens,
+        ];
+    }
+
+    /** Transporte HTTP compartido por send() y sendStructured(). */
+    private static function request(array $payload): array
     {
         $cfg = APP_CONFIG['azure_openai'];
         if (!self::isConfigured()) {
             throw new \RuntimeException('El chatbot no está configurado: falta api_key/endpoint/deployment de Azure OpenAI en config/config.php.');
         }
 
-        $url = rtrim($cfg['endpoint'], '/') . '/chat/completions';
-
-        $payload = json_encode([
-            'model' => $cfg['deployment'],
-            'messages' => array_merge(
-                [['role' => 'system', 'content' => $system]],
-                $messages
-            ),
-            // Los modelos de la familia gpt-5/o-series no aceptan "max_tokens"; usan este nombre.
-            'max_completion_tokens' => $maxTokens,
-        ]);
-
-        $ch = curl_init($url);
+        $ch = curl_init(rtrim($cfg['endpoint'], '/') . '/chat/completions');
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $payload,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_TIMEOUT => 60,
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'Authorization: Bearer ' . $cfg['api_key'],
@@ -64,7 +101,6 @@ class AzureOpenAIClient
             $msg = $data['error']['message'] ?? ('HTTP ' . $httpCode);
             throw new \RuntimeException('Error de Azure OpenAI: ' . $msg);
         }
-
-        return trim($data['choices'][0]['message']['content'] ?? '');
+        return is_array($data) ? $data : [];
     }
 }

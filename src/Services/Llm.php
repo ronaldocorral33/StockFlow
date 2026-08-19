@@ -26,11 +26,38 @@ class Llm
         return self::provider() !== null;
     }
 
+    /** Nombre del proveedor que atendería ahora mismo. Para logs/diagnóstico, nunca para el usuario. */
+    public static function providerName(): string
+    {
+        return self::provider() ?? 'ninguno';
+    }
+
     public static function send(array $messages, string $system, int $maxTokens = 1024): string
     {
         return match (self::provider()) {
             'azure_openai' => AzureOpenAIClient::send($messages, $system, $maxTokens),
             'anthropic' => ClaudeClient::send($messages, $system, $maxTokens),
+            default => throw new \RuntimeException('Ningún proveedor de LLM está configurado.'),
+        };
+    }
+
+    /**
+     * Igual que send(), pero exige que la respuesta cumpla un JSON Schema.
+     * Cada proveedor lo consigue con un mecanismo distinto (OpenAI: response_format;
+     * Anthropic: herramienta forzada) — la fachada esconde esa diferencia.
+     *
+     * @return array|null Objeto decodificado, o null si el modelo no produjo JSON válido.
+     */
+    public static function sendStructured(
+        array $messages,
+        string $system,
+        array $schema,
+        string $schemaName,
+        int $maxTokens = 1024
+    ): ?array {
+        return match (self::provider()) {
+            'azure_openai' => AzureOpenAIClient::sendStructured($messages, $system, $schema, $schemaName, $maxTokens),
+            'anthropic' => ClaudeClient::sendStructured($messages, $system, $schema, $schemaName, $maxTokens),
             default => throw new \RuntimeException('Ningún proveedor de LLM está configurado.'),
         };
     }
