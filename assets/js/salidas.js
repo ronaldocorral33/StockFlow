@@ -15,6 +15,7 @@ const Salidas = (() => {
     const qs = new URLSearchParams({ status: 'sold', q, sort: 'sale_date', dir: 'desc' }).toString();
     const res = await Api.get('items.php?' + qs);
     cache = res.items;
+    await Fields.load();
     fillMonthFilter();
     renderKpis(cache);
     renderTable();
@@ -43,28 +44,37 @@ const Salidas = (() => {
   function renderTable() {
     const fm = document.getElementById('filt-mes').value;
     const rows = cache.filter(r => !fm || mesKey(r.sale_date) === fm);
-    document.getElementById('head-sal').innerHTML =
-      '<th>Fecha venta</th><th>Ped.</th><th>Producto</th><th>Costo</th><th>Venta</th><th>Ganancia</th><th></th>';
+
+    // Las columnas salen del registro, igual que en Inventario, pero con su propia
+    // bandera de visibilidad: en Salidas interesa el margen; en Inventario, el costo.
+    const cols = Fields.columns('sales');
+    const variantAsColumn = Fields.variantIsColumn('sales');
+
+    let head = '';
+    cols.forEach(f => { head += `<th>${esc(f.label)}</th>`; });
+    head += '<th></th>';
+    document.getElementById('head-sal').innerHTML = head;
+
     const tb = document.getElementById('body-sal');
     if (!rows.length) {
-      tb.innerHTML = `<tr><td colspan="7"><div class="empty">${icon('outbox', 30)}Aún no has vendido nada este periodo.</div></td></tr>`;
+      tb.innerHTML = `<tr><td colspan="${cols.length + 1}"><div class="empty">${icon('outbox', 30)}Aún no has vendido nada este periodo.</div></td></tr>`;
       return;
     }
-    tb.innerHTML = rows.map(r => `
-      <tr>
-        <td>${esc(r.sale_date)}</td>
-        <td>${r.order_number ? '#' + r.order_number : '—'}</td>
-        <td><b>${esc(r.name)}</b>${r.variant_label ? `<div class="muted">${esc(r.variant_label)}</div>` : ''}</td>
-        <td class="money">${mx(r.total_cost)}</td>
-        <td class="money">${mx(r.sale_price)}</td>
-        <td class="money ${r.profit > 0 ? 'pos' : (r.profit < 0 ? 'neg' : '')}">${mx(r.profit)}</td>
-        <td>
-          <button class="rowbtn" title="Editar" onclick="Inventario.openModal(${r.id})">${icon('edit', 16)}</button>
-          <button class="rowbtn" title="Anular venta" onclick="Salidas.voidSale(${r.id})">${icon('undo', 16)}</button>
-        </td>
-      </tr>`).join('');
+    tb.innerHTML = rows.map(r => {
+      let cells = '';
+      cols.forEach(f => { cells += Fields.cell(f, r, { variantAsColumn }); });
+      cells += `<td>
+        <button class="rowbtn" title="Editar" onclick="Inventario.openModal(${r.id})">${icon('edit', 16)}</button>
+        <button class="rowbtn" title="Anular venta" onclick="Salidas.voidSale(${r.id})">${icon('undo', 16)}</button>
+      </td>`;
+      return `<tr>${cells}</tr>`;
+    }).join('');
   }
 
+  /** Abre el selector de columnas de Salidas. */
+  function pickColumns() {
+    Fields.openPicker('sales', renderTable);
+  }
   async function voidSale(id) {
     if (!confirm('¿Anular esta venta? La pieza vuelve a stock.')) return;
     await Api.post(`items.php?action=void-sale&id=${id}`, {});
@@ -72,5 +82,5 @@ const Salidas = (() => {
     render();
   }
 
-  return { render, voidSale };
+  return { render, voidSale, pickColumns };
 })();

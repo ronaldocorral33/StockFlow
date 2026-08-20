@@ -4,8 +4,11 @@
  *
  * Las tres primeras son los casos exactos que fallaron en producción. Según la
  * auditoría, "jersey más vendida", "equipo más vendido" y "nombre más vendido" son la
- * MISMA pregunta para este negocio, y la respuesta correcta es America con 7 unidades.
- * Antes daban tres respuestas distintas: 0 filas, "Sin equipo: 15" y la correcta.
+ * MISMA pregunta para este negocio, así que deben dar la MISMA respuesta. Antes daban
+ * tres distintas: 0 filas, "Sin equipo: 15" y la correcta.
+ *
+ * Las cifras concretas NO se fijan a mano: el dueño sigue vendiendo y un literal como
+ * "America, 7" caduca al día siguiente. Se comparan contra un cálculo independiente.
  */
 
 use App\Services\Agent\SchemaSemantics as SS;
@@ -20,16 +23,32 @@ SS::flush();
 // CASOS 1, 2 y 3 del informe: la misma pregunta, una sola respuesta
 // ---------------------------------------------------------------
 
-test('CASO 1-3: el ranking por producto en agosto 2026 da America con 7', function () use ($ctx) {
+test('CASO 1-3: el ranking por producto coincide con el cálculo directo', function () use ($ctx) {
+    // LECCIÓN APRENDIDA: la primera versión de esta prueba afirmaba "America con 7".
+    // Falló en cuanto el dueño registró tres ventas más — la prueba medía los DATOS,
+    // no el CÓDIGO. Una prueba anclada a datos de producción caduca sola.
+    //
+    // Ahora se compara contra una consulta independiente que calcula lo mismo por otro
+    // camino. Si la herramienta agrupa, cuenta u ordena mal, esto falla; si el dueño
+    // vende otra pieza, sigue pasando.
+    $esperado = App\Database::connection()->query(
+        "SELECT name, COUNT(*) AS n
+         FROM inventory_items
+         WHERE business_id = 1 AND sale_date >= '2026-08-01' AND sale_date < '2026-09-01'
+         GROUP BY name ORDER BY n DESC, name ASC LIMIT 1"
+    )->fetch();
+
     $r = Analytics::rankingVentas($ctx, [
         'dimension' => 'name',
         'fecha_inicio' => '2026-08-01',
         'fecha_fin' => '2026-09-01',
     ]);
+
     assertTrue($r['encontrado']);
-    assertSame('America', $r['top']['valor']);
-    assertSame(7, $r['top']['unidades']);
     assertSame('Producto', $r['label']);
+    assertSame($esperado['name'], $r['top']['valor'], 'debe coincidir con el cálculo directo');
+    assertSame((int)$esperado['n'], $r['top']['unidades'], 'y con el conteo real');
+    assertTrue($r['top']['unidades'] > 0);
 });
 
 test('CASO 2: "equipo" ya NO puede resolverse a una clave JSON inventada', function () use ($ctx) {
@@ -113,11 +132,11 @@ test('filtra por un valor concreto y el total cuadra con el ranking', function (
     ]);
     $conFiltro = Analytics::resumenVentas($ctx, [
         'fecha_inicio' => '2026-08-01', 'fecha_fin' => '2026-09-01',
-        'filtros' => [['campo' => 'name', 'operador' => 'eq', 'valor' => 'America']],
+        'filtros' => [['campo' => 'name', 'operador' => 'eq', 'valor' => $sinFiltro['top']['valor']]],
     ]);
     assertTrue($conFiltro['encontrado']);
     assertSame($sinFiltro['top']['unidades'], $conFiltro['unidades_vendidas'],
-        'el resumen filtrado por America debe dar las mismas 7 unidades');
+        'el resumen filtrado por el producto top debe dar las mismas unidades que el ranking');
 });
 
 test('SEGURIDAD: un filtro sobre un campo inexistente se rechaza', function () use ($ctx) {

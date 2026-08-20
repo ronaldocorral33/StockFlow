@@ -9,6 +9,27 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
     Authz::require('view', 'attribute_definitions');
+
+    // El registro COMPLETO (canónicos + personalizados) lo consume el selector de
+    // columnas. Va en un scope aparte y no en la respuesta por omisión para no
+    // cambiarle la forma a los consumidores que ya existen: attributes.js espera
+    // recibir solo los campos personalizados, igual que siempre.
+    if (($_GET['scope'] ?? '') === 'registry') {
+        $campos = AttributeDefinition::listRegistry($businessId);
+        $llenado = AttributeDefinition::fillRates($businessId);
+
+        // La tasa de llenado viaja junto a cada campo para que el selector pueda
+        // avisar "esta columna está vacía". Es lo que convierte una lista de casillas
+        // en una decisión informada.
+        foreach ($campos as $i => $c) {
+            $campos[$i]['fill_rate'] = $llenado[$c['field_key']] ?? null;
+        }
+        json_response([
+            'fields' => $campos,
+            'tables' => array_keys(AttributeDefinition::TABLE_CONFIG),
+        ]);
+    }
+
     json_response(['attributes' => AttributeDefinition::listForBusiness($businessId)]);
 }
 
@@ -20,6 +41,29 @@ if ($method === 'POST' && ($_GET['action'] ?? '') === 'reorder') {
     Authz::require('update', 'attribute_definitions');
     $body = json_body();
     AttributeDefinition::reorder($businessId, $body['ids'] ?? []);
+    json_response(['ok' => true]);
+}
+
+// Mostrar u ocultar una columna. Es una acción propia y no parte del PUT genérico
+// porque es lo ÚNICO que la Fase 3B permite cambiar: renombrar etiquetas o cambiar
+// tipos llega en 3D con su propia validación.
+//
+// Exige permiso de EDICIÓN de definiciones: la configuración de columnas es del
+// negocio y la comparten todos sus empleados, así que no debería poder cambiarla
+// cualquiera que solo tenga permiso de lectura.
+if ($method === 'POST' && ($_GET['action'] ?? '') === 'visibility') {
+    Authz::require('update', 'attribute_definitions');
+    $body = json_body();
+    $id = (int)($body['id'] ?? 0);
+    $tabla = (string)($body['table'] ?? '');
+    if ($id <= 0) {
+        json_response(['error' => 'Falta el id del campo'], 422);
+    }
+    try {
+        AttributeDefinition::setVisibility($id, $businessId, $tabla, !empty($body['visible']));
+    } catch (\InvalidArgumentException $e) {
+        json_response(['error' => $e->getMessage()], 422);
+    }
     json_response(['ok' => true]);
 }
 

@@ -70,6 +70,8 @@ class AttributeDefinition
         $row['show_in_table'] = (bool)$row['show_in_table'];
         // Metadatos de la Fase 3A. Se exponen ya para que 3B y 3C no tengan que tocar
         // este método, pero todavía nadie los lee.
+        $row['visible_in_sales'] = (bool)($row['visible_in_sales'] ?? 0);
+        $row['sort_order_sales'] = (int)($row['sort_order_sales'] ?? 0);
         $row['filterable'] = (bool)($row['filterable'] ?? 1);
         $row['analytics_enabled'] = (bool)($row['analytics_enabled'] ?? 1);
         $row['is_canonical'] = ($row['storage'] ?? self::STORAGE_JSON) === self::STORAGE_COLUMN;
@@ -210,13 +212,13 @@ class AttributeDefinition
         $stmt = $pdo->prepare(
             'INSERT IGNORE INTO attribute_definitions
                 (business_id, user_id, field_key, label, field_type, storage, semantic_role,
-                 is_required, show_in_table, filterable, analytics_enabled, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 is_required, show_in_table, visible_in_sales, filterable, analytics_enabled, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         foreach (self::CANONICAL_SEED as $i => $c) {
             $stmt->execute([
                 $businessId, $ownerUserId, $c[0], $c[1], $c[2], self::STORAGE_COLUMN, $c[3],
-                $c[4], $c[5], $c[6], $c[7], $i + 1,
+                $c[4], $c[5], $c[8], $c[6], $c[7], $i + 1,
             ]);
         }
     }
@@ -230,25 +232,171 @@ class AttributeDefinition
      * renombrarlos. Registrar solo lo que el negocio puede configurar es lo que hace
      * que esa frontera sea imposible de cruzar por accidente.
      *
-     * [field_key, label, field_type, semantic_role, required, visible, filterable, analytics]
+     * [field_key, label, field_type, semantic_role, required, visible_inventario,
+     *  filterable, analytics, visible_salidas]
      */
     private const CANONICAL_SEED = [
-        ['name',          'Producto',          'text',     self::ROLE_PRODUCT_NAME, 1, 1, 1, 1],
-        ['variant_label', 'Variante',          'text',     null,                    0, 0, 1, 1],
-        ['category',      'Categoría',         'text',     null,                    0, 0, 1, 1],
-        ['subcategory',   'Subcategoría',      'text',     null,                    0, 0, 1, 1],
-        ['supplier',      'Proveedor',         'text',     null,                    0, 0, 1, 1],
-        ['order_number',  'Pedido',            'text',     null,                    0, 1, 1, 1],
-        ['cost',          'Costo',             'number',   null,                    0, 1, 0, 0],
-        ['shipping_cost', 'Envío',             'number',   null,                    0, 1, 0, 0],
-        ['total_cost',    'Costo total',       'computed', null,                    0, 1, 0, 0],
-        ['sale_price',    'Venta',             'number',   null,                    0, 1, 0, 0],
-        ['profit',        'Ganancia',          'computed', null,                    0, 1, 0, 0],
-        ['purchase_date', 'Fecha de compra',   'date',     null,                    0, 0, 1, 0],
-        ['arrival_date',  'Fecha de llegada',  'date',     null,                    0, 0, 1, 0],
-        ['sale_date',     'Fecha de venta',    'date',     null,                    0, 0, 1, 0],
+        ['name',          'Producto',          'text',     self::ROLE_PRODUCT_NAME, 1, 1, 1, 1, 1],
+        ['variant_label', 'Variante',          'text',     null,                    0, 0, 1, 1, 0],
+        ['category',      'Categoría',         'text',     null,                    0, 0, 1, 1, 0],
+        ['subcategory',   'Subcategoría',      'text',     null,                    0, 0, 1, 1, 0],
+        ['supplier',      'Proveedor',         'text',     null,                    0, 0, 1, 1, 0],
+        ['order_number',  'Pedido',            'text',     null,                    0, 1, 1, 1, 1],
+        ['cost',          'Costo',             'number',   null,                    0, 1, 0, 0, 0],
+        ['shipping_cost', 'Envío',             'number',   null,                    0, 1, 0, 0, 0],
+        ['total_cost',    'Costo total',       'computed', null,                    0, 1, 0, 0, 1],
+        ['sale_price',    'Venta',             'number',   null,                    0, 1, 0, 0, 1],
+        ['profit',        'Ganancia',          'computed', null,                    0, 1, 0, 0, 1],
+        ['purchase_date', 'Fecha de compra',   'date',     null,                    0, 0, 1, 0, 0],
+        ['arrival_date',  'Fecha de llegada',  'date',     null,                    0, 0, 1, 0, 0],
+        ['sale_date',     'Fecha de venta',    'date',     null,                    0, 0, 1, 0, 1],
     ];
 
+    /**
+     * Las dos tablas con presentación configurable, y las columnas que la guardan.
+     *
+     * Cada tabla tiene su propia visibilidad Y su propio orden: responden preguntas
+     * distintas. Inventario es un catálogo y empieza por el producto; Salidas es un
+     * registro cronológico y empieza por la fecha.
+     */
+    public const TABLE_CONFIG = [
+        'inventory' => ['visible' => 'show_in_table', 'order' => 'sort_order'],
+        'sales' => ['visible' => 'visible_in_sales', 'order' => 'sort_order_sales'],
+    ];
+
+    /** @deprecated Se conserva por compatibilidad; usa TABLE_CONFIG. */
+    public const VISIBILITY_COLUMNS = [
+        'inventory' => 'show_in_table',
+        'sales' => 'visible_in_sales',
+    ];
+
+    /**
+     * Muestra u oculta un campo en una tabla.
+     *
+     * Es un método propio en vez de abrir update() a estas columnas porque la
+     * visibilidad es lo ÚNICO que la Fase 3B permite cambiar: renombrar etiquetas o
+     * cambiar tipos llega en 3D, con su propia validación. Una firma estrecha no puede
+     * modificar de más por accidente.
+     *
+     * Funciona igual para campos canónicos y personalizados: ocultar es reversible y
+     * no toca datos, así que no hace falta proteger a los canónicos como en delete().
+     */
+    public static function setVisibility(int $id, int $businessId, string $table, bool $visible): void
+    {
+        if (!isset(self::TABLE_CONFIG[$table])) {
+            throw new \InvalidArgumentException('Tabla no reconocida: ' . $table);
+        }
+        // El nombre de columna sale de una lista blanca, nunca del argumento.
+        $col = self::TABLE_CONFIG[$table]['visible'];
+
+        Database::connection()
+            ->prepare("UPDATE attribute_definitions SET {$col} = ? WHERE id = ? AND business_id = ?")
+            ->execute([$visible ? 1 : 0, $id, $businessId]);
+    }
+
+    /**
+     * Expresión SQL de un campo del registro.
+     *
+     * Es la traducción de "field_key" a "de dónde se lee el valor". Vive aquí, en el
+     * dueño del registro, para que no haya dos versiones de la misma verdad.
+     *
+     * NOTA DE DEUDA: SchemaSemantics tiene hoy su propia copia de este mapa para las
+     * dimensiones fijas. La Fase 3C la elimina y la hace leer de aquí. Se deja así a
+     * propósito para no arrastrar 3C dentro de 3B.
+     */
+    public static function sqlExpressionFor(array $field): ?string
+    {
+        if (($field['storage'] ?? self::STORAGE_JSON) === self::STORAGE_JSON) {
+            $key = preg_replace('/[^a-zA-Z0-9_]/', '', (string)$field['field_key']);
+            return "JSON_UNQUOTE(JSON_EXTRACT(i.attributes, '$.\"{$key}\"'))";
+        }
+        return self::CANONICAL_SQL[$field['field_key']] ?? null;
+    }
+
+    /**
+     * De dónde se lee cada campo canónico. Dos de ellos no son columnas de
+     * inventory_items sino valores traídos por JOIN: su etiqueta y visibilidad son
+     * configuración del negocio, pero CÓMO se obtiene el valor es plomería interna.
+     */
+    private const CANONICAL_SQL = [
+        'name' => 'i.name',
+        'variant_label' => 'i.variant_label',
+        'category' => 'i.category',
+        'subcategory' => 'i.subcategory',
+        'supplier' => 's.name',
+        'order_number' => 'po.order_number',
+        'cost' => 'i.cost',
+        'shipping_cost' => 'i.shipping_cost',
+        'total_cost' => 'i.total_cost',
+        'sale_price' => 'i.sale_price',
+        'profit' => 'i.profit',
+        'purchase_date' => 'i.purchase_date',
+        'arrival_date' => 'i.arrival_date',
+        'sale_date' => 'i.sale_date',
+    ];
+
+    /**
+     * Qué proporción de piezas tiene cada campo con algún valor.
+     *
+     * Alimenta el aviso "sin datos" del selector de columnas: es lo que convierte una
+     * lista de casillas en una decisión informada. Sin esto, el usuario tendría que
+     * activar una columna, mirar la tabla y volver a desactivarla para descubrir que
+     * estaba vacía — que es exactamente lo que le pasó con Categoría.
+     *
+     * Se calcula en UNA consulta con un SUM condicional por campo, no una consulta
+     * por campo: así el costo no crece con el tamaño del inventario ni con el número
+     * de campos configurados.
+     *
+     * @return array<string,float> field_key => proporción entre 0 y 1
+     */
+    public static function fillRates(int $businessId): array
+    {
+        $campos = self::listRegistry($businessId);
+        $sums = [];
+        $orden = [];
+        foreach ($campos as $i => $c) {
+            $expr = self::sqlExpressionFor($c);
+            if ($expr === null) {
+                continue;
+            }
+            // El alias es posicional (c0, c1...) para no interpolar nunca el field_key
+            // en el SQL, ni siquiera saneado.
+            $alias = 'c' . $i;
+            $sums[] = "SUM({$expr} IS NOT NULL AND TRIM({$expr}) <> '') AS {$alias}";
+            $orden[$alias] = $c['field_key'];
+        }
+        if (!$sums) {
+            return [];
+        }
+
+        $sql = 'SELECT COUNT(*) AS total, ' . implode(', ', $sums) . '
+                FROM inventory_items i
+                LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
+                WHERE i.business_id = ?';
+
+        try {
+            $stmt = Database::connection()->prepare($sql);
+            $stmt->execute([$businessId]);
+            $row = $stmt->fetch() ?: [];
+        } catch (\Throwable $e) {
+            error_log('[registry] no se pudieron calcular las tasas de llenado: ' . $e->getMessage());
+            return [];
+        }
+
+        $total = (int)($row['total'] ?? 0);
+        if ($total === 0) {
+            // Sin piezas no se puede afirmar que un campo esté vacío: sería engañoso
+            // marcar todo como "sin datos" en un negocio que apenas empieza.
+            return [];
+        }
+
+        $out = [];
+        foreach ($orden as $alias => $fieldKey) {
+            $out[$fieldKey] = round(((int)($row[$alias] ?? 0)) / $total, 4);
+        }
+        return $out;
+    }
     /**
      * El campo marcado como product_name, o null.
      *

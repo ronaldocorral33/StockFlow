@@ -8,17 +8,10 @@ const Inventario = (() => {
   let metaLoaded = false;
   let avgSoldPrice = null; // precio de venta promedio histórico, para estimar piezas sin precio
 
-  const FIXED_COLS = [
-    { k: 'name', t: 'Nombre' },
-    { k: 'category', t: 'Categoría' },
-    { k: 'subcategory', t: 'Subcategoría' },
-    { k: 'cost', t: 'Costo' },
-    { k: 'shipping_cost', t: 'Envío' },
-    { k: 'total_cost', t: 'Costo total' },
-    { k: 'sale_price', t: 'Venta' },
-    { k: 'profit', t: 'Ganancia' },
-    { k: 'order_number', t: 'Pedido' },
-  ];
+  // Las columnas ya no se escriben aquí: salen del registro de campos del negocio
+  // (attribute_definitions), que el usuario controla desde el selector de columnas.
+  // Antes esta constante era un arreglo literal de 9 columnas, y por eso Categoría
+  // aparecía siempre aunque estuviera vacía en las 738 piezas.
 
   async function loadMeta() {
     if (metaLoaded) return;
@@ -30,6 +23,8 @@ const Inventario = (() => {
     pedSel.innerHTML = '<option value="">Todos los pedidos</option>' +
       meta.purchase_orders.map(p => `<option value="${p.id}">#${p.order_number}</option>`).join('');
     avgSoldPrice = meta.avg_sold_price != null ? Number(meta.avg_sold_price) : null;
+    // El registro de campos define qué columnas dibujar. Se carga una vez por sesión.
+    await Fields.load();
     metaLoaded = true;
   }
 
@@ -104,33 +99,26 @@ const Inventario = (() => {
     animateKpis('kpis-inv');
   }
 
-  function attrCols() { return Attributes.tableFields(); }
 
   function renderTable(items) {
-    const attrs = attrCols();
-    const arrow = (col) => sort.col === col ? `<span class="ar">${icon(sort.dir > 0 ? 'chevronUp' : 'chevronDown', 12)}</span>` : '';
+    const cols = Fields.columns('inventory');
+    const variantAsColumn = Fields.variantIsColumn('inventory');
+
     let head = `<th style="cursor:default;width:34px"><input type="checkbox" id="chk-all" onclick="Inventario.toggleAll(this.checked)"></th>`;
-    FIXED_COLS.forEach(c => { head += `<th onclick="Inventario.setSort('${c.k}')">${esc(c.t)}${arrow(c.k)}</th>`; });
-    attrs.forEach(a => { head += `<th>${esc(a.label)}</th>`; });
+    cols.forEach(f => { head += Fields.headerCell(f, sort, 'Inventario.setSort'); });
     head += `<th>Estado</th><th></th>`;
     document.getElementById('head-inv').innerHTML = head;
 
     const tb = document.getElementById('body-inv');
     if (!items.length) {
-      tb.innerHTML = `<tr><td colspan="${FIXED_COLS.length + attrs.length + 3}"><div class="empty">${icon('package', 30)}No hay productos que coincidan.</div></td></tr>`;
+      tb.innerHTML = `<tr><td colspan="${cols.length + 3}"><div class="empty">${icon('package', 30)}No hay productos que coincidan.</div></td></tr>`;
       return;
     }
     tb.innerHTML = items.map(r => {
       const sold = !!r.sale_date;
       const chk = `<input type="checkbox" ${selected.has(r.id) ? 'checked' : ''} onclick="Inventario.toggleOne(${r.id}, this.checked)">`;
       let cells = `<td>${chk}</td>`;
-      cells += `<td><b>${esc(r.name)}</b>${r.variant_label ? `<div class="muted">${esc(r.variant_label)}</div>` : ''}</td>`;
-      cells += `<td>${esc(r.category || '—')}</td><td>${esc(r.subcategory || '—')}</td>`;
-      cells += `<td class="money">${mx(r.cost)}</td><td class="money">${mx(r.shipping_cost)}</td><td class="money">${mx(r.total_cost)}</td>`;
-      cells += `<td class="money">${mx(r.sale_price)}</td>`;
-      cells += `<td class="money ${r.profit > 0 ? 'pos' : (r.profit < 0 ? 'neg' : '')}">${r.profit != null ? mx(r.profit) : '—'}</td>`;
-      cells += `<td>${r.order_number ? '#' + r.order_number : '—'}</td>`;
-      attrs.forEach(a => { cells += `<td>${esc((r.attributes || {})[a.field_key] ?? '—')}</td>`; });
+      cols.forEach(f => { cells += Fields.cell(f, r, { variantAsColumn }); });
       cells += `<td>${sold ? '<span class="pill vendida">Vendida</span>' : '<span class="pill stock">En stock</span>'}</td>`;
       cells += `<td>
         ${!sold ? `<button class="rowbtn" title="Vender" onclick="Inventario.openSell(${r.id})">${icon('dollar', 16)}</button>` : `<button class="rowbtn" title="Anular venta" onclick="Inventario.voidSale(${r.id})">${icon('undo', 16)}</button>`}
@@ -141,6 +129,10 @@ const Inventario = (() => {
     }).join('');
   }
 
+  /** Abre el selector de columnas de esta tabla y la redibuja al cambiar. */
+  function pickColumns() {
+    Fields.openPicker('inventory', () => renderTable(cache));
+  }
   function setSort(col) {
     if (sort.col === col) sort.dir *= -1; else { sort.col = col; sort.dir = 1; }
     render();
@@ -346,7 +338,7 @@ const Inventario = (() => {
   }
 
   return {
-    render, setSort, toggleOne, toggleAll, clearSel,
+    render, setSort, pickColumns, toggleOne, toggleAll, clearSel,
     openBulkArrival, openBulkSell, applyBulkPrice, bulkRowCalc, closeBulk, confirmBulkSell,
     openSell, sellCalc, closeSell, confirmSell, voidSale, remove,
     openModal, modalCalc, closeModal, save,

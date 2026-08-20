@@ -212,6 +212,16 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
 .impstat.nuevo b{color:var(--royal-deep)}
 .impstat.warn b{color:var(--amber)}
 .impwarn{display:flex; gap:9px; align-items:flex-start; background:var(--amber-soft); border:1px solid var(--line); border-radius:var(--radius-sm); padding:11px 13px; font-size:.8rem; line-height:1.5; margin-top:11px}
+/* Selector de columnas. Reusa el vocabulario ya definido: sin colores, radios ni
+   sombras nuevas. */
+.colgroup{margin-bottom:16px}
+.colgroup-t{font-size:.7rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft); margin-bottom:7px}
+.colopt{display:flex; align-items:center; gap:9px; padding:7px 9px; border-radius:var(--radius-sm); cursor:pointer; transition:background .14s var(--ease)}
+.colopt:hover{background:var(--surface)}
+.colopt input{accent-color:var(--royal); flex:none; width:15px; height:15px}
+.colopt-l{font-size:.87rem; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.colhint{font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); background:var(--surface-2); padding:1px 6px; border-radius:20px}
+.colhint.warn{color:var(--amber); background:var(--amber-soft)}
 .modal-bg{position:fixed; inset:0; background:rgba(11,15,26,.42); backdrop-filter:blur(2px); display:none; align-items:flex-start; justify-content:center; z-index:100; padding:6vh 12px; overflow-y:auto}
 .modal-bg.show{display:flex}
 .modal{background:var(--paper); border-radius:var(--radius-lg); width:100%; max-width:640px; box-shadow:var(--shadow-lg); animation:modal-in .28s var(--ease)}

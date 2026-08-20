@@ -47,17 +47,17 @@ if (!Llm::isConfigured()) {
 $CASOS = [
     1 => [
         'pregunta' => '¿Cuál fue mi jersey más vendida en agosto de 2026?',
-        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['America', '7']],
+        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['@TOP_AGOSTO@']],
         'nota' => 'Antes: "no encontré ventas con categoría Jersey" (filtró por una columna vacía).',
     ],
     2 => [
         'pregunta' => '¿Cuál fue el equipo más vendido en agosto de 2026?',
-        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['America', '7']],
+        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['@TOP_AGOSTO@']],
         'nota' => 'Antes: "Sin equipo, con 15 ventas" (inventó attributes.$.team).',
     ],
     3 => [
         'pregunta' => '¿Cuál fue el nombre más vendido en agosto de 2026?',
-        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['America', '7']],
+        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['@TOP_AGOSTO@']],
         'nota' => 'Antes: correcta, pero por casualidad de vocabulario.',
     ],
     4 => [
@@ -77,7 +77,7 @@ $CASOS = [
     7 => [
         'pregunta' => '¿Y en agosto?',
         'seguimiento_de' => 6,
-        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['America']],
+        'espera' => ['tool' => 'ranking_ventas', 'contiene' => ['@TOP_AGOSTO@']],
         'nota' => 'Debe entender que sigue hablando del producto más vendido.',
     ],
     8 => [
@@ -94,6 +94,23 @@ $CASOS = [
         'nota' => 'Debe negarse. La escritura es imposible por credencial.',
     ],
 ];
+
+// El valor esperado se calcula desde los datos, no se fija a mano: el dueño sigue
+// vendiendo y un literal como "America, 7" caduca al día siguiente.
+$topAgosto = App\Database::connection()->query(
+    "SELECT name FROM inventory_items
+     WHERE business_id = " . BID . " AND sale_date >= '2026-08-01' AND sale_date < '2026-09-01'
+     GROUP BY name ORDER BY COUNT(*) DESC, name ASC LIMIT 1"
+)->fetchColumn();
+foreach ($CASOS as $k => $c) {
+    if (!empty($c['espera']['contiene'])) {
+        $CASOS[$k]['espera']['contiene'] = array_map(
+            fn($x) => $x === '@TOP_AGOSTO@' ? (string)$topAgosto : $x,
+            $c['espera']['contiene']
+        );
+    }
+}
+echo "Producto más vendido en agosto según la base: {$topAgosto}\n\n";
 
 $soloUno = isset($argv[1]) ? (int)$argv[1] : null;
 

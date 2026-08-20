@@ -126,6 +126,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
         <div class="toolbar">
           <input type="search" id="search-sal" placeholder="Buscar en ventas..." oninput="Salidas.render()">
           <select id="filt-mes" onchange="Salidas.render()"></select>
+          <button class="btn ghost sm" onclick="Salidas.pickColumns()" title="Elegir qué columnas ver"><?= icon('sliders', 14) ?> Columnas</button>
         </div>
         <div class="tablecard"><div class="tscroll"><table>
           <thead><tr id="head-sal"></tr></thead><tbody id="body-sal"></tbody>
@@ -143,6 +144,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
           </select>
           <select id="filt-categoria" onchange="Inventario.render()"></select>
           <select id="filt-pedido" onchange="Inventario.render()"></select>
+          <button class="btn ghost sm" onclick="Inventario.pickColumns()" title="Elegir qué columnas ver"><?= icon('sliders', 14) ?> Columnas</button>
         </div>
         <div id="bulkbar" class="bulkbar"></div>
         <div class="tablecard"><div class="tscroll"><table>
@@ -222,6 +224,18 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
   </div>
 </div>
 
+<div class="modal-bg" id="cols-bg">
+  <div class="modal" style="max-width:520px">
+    <h2><span><?= icon('sliders', 17) ?> <span id="cols-title">Columnas</span></span><span class="x" onclick="Fields.closePicker()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <p class="muted" style="font-size:.82rem; margin-bottom:14px">Elige qué columnas ver en esta tabla. Los cambios se guardan al instante y aplican para todo tu negocio.</p>
+      <div id="cols-body"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn primary" onclick="Fields.closePicker()">Listo</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="import-bg">
   <div class="modal" style="max-width:560px">
     <h2><span><?= icon('upload', 17) ?> Importar Excel</span><span class="x" onclick="ImportExport.close()"><?= icon('x', 18) ?></span></h2>
@@ -307,6 +321,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
 <script src="<?= esc(asset('assets/js/icons.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/api.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/attributes.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/fields.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/entradas.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/salidas.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/inventario.js')) ?>"></script>
