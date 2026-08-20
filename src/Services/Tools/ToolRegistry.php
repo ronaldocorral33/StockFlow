@@ -6,6 +6,8 @@ if (!defined('APP_BOOTSTRAP')) { http_response_code(403); exit('Forbidden'); }
 use App\Database;
 use App\Services\Authz;
 use App\Services\ResultSummary;
+use App\Services\Agent\SchemaSemantics;
+use App\Services\Agent\DateResolver;
 use App\Services\SqlGuard;
 use App\Services\TrendService;
 
@@ -35,16 +37,22 @@ class ToolRegistry
      * Definiciones que se le mandan al proveedor. Formato neutro; cada cliente
      * (Azure/Anthropic) lo traduce a su propio dialecto.
      */
-    public static function definitions(): array
+    public static function definitions(?ToolContext $ctx = null): array
     {
-        return [
+        // Sin contexto no se puede construir el catálogo de dimensiones de ESTE negocio,
+        // así que solo se ofrecen las herramientas que no dependen de él.
+        $analiticas = $ctx !== null ? self::analyticsDefinitions($ctx) : [];
+
+        return array_merge($analiticas, [
             [
                 'name' => 'consultar_inventario',
                 'description' =>
-                    'Consulta los datos reales del negocio (inventario, compras, proveedores) ejecutando '
-                    . 'una sentencia SELECT de solo lectura. Úsala para cualquier pregunta sobre cuántas '
-                    . 'piezas hay, cuánto se vendió, qué producto es más rentable, etc. '
-                    . 'La consulta se valida antes de ejecutarse y el resultado se te devuelve.',
+                    'HERRAMIENTA DE ÚLTIMO RECURSO. Antes de usarla, revisa si ranking_ventas, '
+                    . 'resumen_ventas, comparar_periodos o consultar_stock resuelven la pregunta: '
+                    . 'ésas calculan los indicadores de forma consistente y no dependen de que '
+                    . 'aciertes con el SQL. Usa esta solo para consultas que ninguna cubre '
+                    . '(cruces poco comunes, cálculos a la medida). Ejecuta un SELECT de solo '
+                    . 'lectura, validado antes de correr.',
                 'parameters' => [
                     'type' => 'object',
                     'additionalProperties' => false,
@@ -87,11 +95,181 @@ class ToolRegistry
                     ],
                 ],
             ],
-        ];
+        ]);
     }
 
+    /**
+     * Definiciones de las herramientas analíticas, construidas PARA ESTE NEGOCIO.
+     *
+     * La pieza importante es el enum de dimensiones: se arma en tiempo de ejecución
+     * desde SchemaSemantics, así que el modelo recibe la lista real de lo que este
+     * negocio puede analizar — con las etiquetas que su dueño eligió — y no puede
+     * proponer nada fuera de ella. Ahí muere el bug de attributes.$.team.
+     *
+     * Un negocio de refacciones que configure "marca" verá "marca" en el enum sin que
+     * nadie escriba código: por eso no existen funciones por concepto.
+     */
+    private static function analyticsDefinitions(ToolContext $ctx): array
+    {
+        $bid = $ctx->businessId;
+        $claves = SchemaSemantics::dimensionKeys($bid, true);
+        if (!$claves) {
+            // Un negocio sin datos aún: no se ofrecen herramientas que no podrían
+            // responder nada. Mejor que ofrecerlas y devolver vacíos inexplicables.
+            return [];
+        }
+
+        $catalogo = SchemaSemantics::forBusiness($bid)['dimensions'];
+        $glosario = [];
+        foreach ($claves as $k) {
+            $d = $catalogo[$k];
+            $ej = $d['examples'] ? ' (ej. ' . implode(', ', array_slice($d['examples'], 0, 3)) . ')' : '';
+            $glosario[] = $k . ' = ' . $d['label'] . $ej;
+        }
+        $glosarioTxt = implode('; ', $glosario);
+
+        $dimensionSchema = [
+            'type' => 'string',
+            'enum' => $claves,
+            'description' => 'Por qué agrupar. Elige según el SIGNIFICADO, no según la palabra '
+                . 'que usó el usuario: ' . $glosarioTxt . '.',
+        ];
+
+        $periodoSchema = [
+            'type' => 'string',
+            'enum' => DateResolver::PERIODS,
+            'description' => 'Periodo relativo. Úsalo para "este mes", "últimos 30 días", etc.: '
+                . 'el sistema calcula las fechas. Para un mes o rango concreto usa '
+                . 'fecha_inicio y fecha_fin en su lugar.',
+        ];
+        $fechaSchema = [
+            'type' => 'string',
+            'description' => 'Fecha en formato YYYY-MM-DD. El fin es EXCLUSIVO: para agosto de 2026 '
+                . 'usa fecha_inicio 2026-08-01 y fecha_fin 2026-09-01.',
+        ];
+        $filtrosSchema = [
+            'type' => 'array',
+            'description' => 'Filtros opcionales. Son datos, no SQL. El campo debe ser una de las '
+                . 'dimensiones válidas: ' . implode(', ', $claves) . '.',
+            'items' => [
+                'type' => 'object',
+                'required' => ['campo', 'valor'],
+                'properties' => [
+                    'campo' => ['type' => 'string', 'enum' => $claves],
+                    'operador' => [
+                        'type' => 'string',
+                        'enum' => ['eq', 'ne', 'contains', 'gt', 'lt', 'gte', 'lte'],
+                        'description' => 'Por omisión "eq" (igual).',
+                    ],
+                    'valor' => ['type' => 'string'],
+                ],
+            ],
+        ];
+
+        return [
+            [
+                'name' => 'ranking_ventas',
+                'description' =>
+                    'PREFERIDA para cualquier pregunta de "qué se vendió más/menos". Agrupa las '
+                    . 'unidades vendidas por la dimensión que elijas y las ordena. Sirve para '
+                    . 'producto, variante, proveedor o cualquier atributo de este negocio: '
+                    . $glosarioTxt . '. Devuelve unidades, ingresos y ganancia por valor.',
+                'parameters' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['dimension'],
+                    'properties' => [
+                        'dimension' => $dimensionSchema,
+                        'periodo' => $periodoSchema,
+                        'fecha_inicio' => $fechaSchema,
+                        'fecha_fin' => $fechaSchema,
+                        'filtros' => $filtrosSchema,
+                        'limite' => [
+                            'type' => 'integer',
+                            'description' => 'Cuántos valores devolver (1-' . Analytics::MAX_ROWS . '). '
+                                . 'Para "el más vendido" usa 1; para un top usa 5 o 10.',
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'name' => 'resumen_ventas',
+                'description' =>
+                    'Cifras globales de un periodo: unidades vendidas, ingresos, ganancia, margen '
+                    . 'y ticket promedio. Úsala para "cuánto vendí" o "cómo me fue". Con filtros '
+                    . 'responde "cuánto vendí de X".',
+                'parameters' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'properties' => [
+                        'periodo' => $periodoSchema,
+                        'fecha_inicio' => $fechaSchema,
+                        'fecha_fin' => $fechaSchema,
+                        'filtros' => $filtrosSchema,
+                    ],
+                ],
+            ],
+            [
+                'name' => 'comparar_periodos',
+                'description' =>
+                    'Compara dos periodos y devuelve la variación absoluta y porcentual. Úsala para '
+                    . '"compara julio y agosto" o "cómo va contra el mes pasado". El sistema calcula '
+                    . 'la variación: no la estimes tú.',
+                'parameters' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'properties' => [
+                        'periodo_a' => $periodoSchema,
+                        'fecha_inicio_a' => $fechaSchema,
+                        'fecha_fin_a' => $fechaSchema,
+                        'periodo_b' => $periodoSchema,
+                        'fecha_inicio_b' => $fechaSchema,
+                        'fecha_fin_b' => $fechaSchema,
+                        'filtros' => $filtrosSchema,
+                    ],
+                ],
+            ],
+            [
+                'name' => 'consultar_stock',
+                'description' =>
+                    'Piezas que AÚN NO se han vendido. Sin dimensión devuelve el total y lo '
+                    . 'invertido; con dimensión, el desglose. Usa orden "asc" para "de qué tengo '
+                    . 'menos" y "desc" para "de qué tengo más".',
+                'parameters' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'properties' => [
+                        'dimension' => $dimensionSchema,
+                        'filtros' => $filtrosSchema,
+                        'orden' => ['type' => 'string', 'enum' => ['asc', 'desc']],
+                        'limite' => ['type' => 'integer'],
+                    ],
+                ],
+            ],
+            [
+                'name' => 'productos_agotados',
+                'description' =>
+                    'Valores de una dimensión que se vendieron completos y ya NO tienen existencias. '
+                    . 'Úsala para "qué se me agotó" o "qué productos no tengo en stock". Es distinto '
+                    . 'de consultar_stock, que muestra lo que sí tienes.',
+                'parameters' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'properties' => [
+                        'dimension' => $dimensionSchema,
+                        'limite' => ['type' => 'integer'],
+                    ],
+                ],
+            ],
+        ];
+    }
     /** Permiso requerido por herramienta: [recurso, acción]. */
     private const PERMISSIONS = [
+        'ranking_ventas' => ['reports', 'view'],
+        'resumen_ventas' => ['reports', 'view'],
+        'comparar_periodos' => ['reports', 'view'],
+        'consultar_stock' => ['inventory_items', 'view'],
+        'productos_agotados' => ['inventory_items', 'view'],
         'consultar_inventario' => ['inventory_items', 'view'],
         'proyectar_ventas' => ['reports', 'view'],
     ];
@@ -118,6 +296,11 @@ class ToolRegistry
 
         try {
             return match ($name) {
+                'ranking_ventas' => Analytics::rankingVentas($ctx, $args),
+                'resumen_ventas' => Analytics::resumenVentas($ctx, $args),
+                'comparar_periodos' => Analytics::compararPeriodos($ctx, $args),
+                'consultar_stock' => Analytics::consultarStock($ctx, $args),
+                'productos_agotados' => Analytics::sinStock($ctx, $args),
                 'consultar_inventario' => self::consultarInventario($args, $ctx),
                 'proyectar_ventas' => self::proyectarVentas($args, $ctx),
             };

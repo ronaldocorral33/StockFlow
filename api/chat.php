@@ -5,6 +5,8 @@ use App\Database;
 use App\Services\Authz;
 use App\Services\ChatHistory;
 use App\Services\Llm;
+use App\Services\Agent\DateResolver;
+use App\Services\Agent\SchemaSemantics;
 use App\Services\Tools\ToolContext;
 use App\Services\Tools\AgentRunner;
 
@@ -17,6 +19,25 @@ Respondes en español, de forma concisa y directa.
 
 Tienes herramientas para consultar los datos reales del negocio. Úsalas siempre que la
 pregunta sea sobre esos datos: nunca inventes cifras ni supongas cantidades.
+
+CÓMO ELEGIR HERRAMIENTA
+1. Primero busca una herramienta específica: ranking_ventas, resumen_ventas,
+   comparar_periodos, consultar_stock o productos_agotados. Ésas calculan los
+   indicadores de forma consistente y ya saben cómo está armado este negocio.
+2. Usa consultar_inventario (SQL libre) SOLO si ninguna de las anteriores cubre la
+   pregunta. Es el último recurso, no el primero.
+
+TRADUCE EL SIGNIFICADO, NO LA PALABRA
+El usuario usa el vocabulario de su giro; tú debes elegir la dimensión que corresponde
+a ese SIGNIFICADO. Guíate por los valores de ejemplo de cada dimensión: si la pregunta
+es por algo que se parece a esos valores, ésa es la dimensión correcta, aunque la
+palabra del usuario no coincida con el nombre de la dimensión.
+
+NUNCA INVENTES UNA DIMENSIÓN
+Solo existen las dimensiones listadas abajo. Si crees que falta una, NO improvises un
+nombre de columna ni una clave: dilo al usuario y ofrécele las que sí hay. Si una
+herramienta responde que una dimensión no tiene datos, explícale ESA causa; no digas
+que no hubo ventas, porque no es lo mismo.
 
 Si la pregunta NO es sobre los datos del negocio (por ejemplo, te preguntan qué puedes
 hacer o cómo funcionas), responde directamente con texto, sin usar ninguna herramienta.
@@ -110,6 +131,20 @@ function llmFailure(int $businessId, int $userId, string $question, string $stag
 $t0 = microtime(true);
 $ctx = new ToolContext($businessId, $userId);
 
+// El prompt se arma por negocio: la parte fija explica CÓMO razonar, y estas dos
+// líneas le dan los hechos que no puede saber por su cuenta.
+//
+// - La fecha de hoy: un LLM no la sabe. Sin esto, "este mes" se resolvía con la fecha
+//   de su corte de entrenamiento — un error silencioso, porque la consulta corre bien.
+// - La semántica del negocio: qué dimensiones existen, cómo se llaman para su dueño,
+//   cómo se ven sus valores reales y cuáles están vacías. Es lo que evita que vuelva a
+//   filtrar por una columna sin datos o a inventar una clave JSON.
+//
+// Es metadata compacta (una línea por dimensión con 4 ejemplos), no filas de datos.
+$systemPrompt = SYSTEM_PROMPT . "\n\n"
+    . DateResolver::todayContext() . "\n\n"
+    . SchemaSemantics::promptBlock($businessId);
+
 // Memoria: el hilo lo identifica el cliente, pero el historial SIEMPRE se busca
 // acotado al negocio y usuario de la sesión — un id ajeno no trae nada.
 $history = ChatHistory::messagesFor($businessId, $userId, $conversationId);
@@ -119,7 +154,7 @@ $history = ChatHistory::messagesFor($businessId, $userId, $conversationId);
 // decide que ya puede responder, o hasta que topa con el límite de pasos.
 // ---------------------------------------------------------------
 try {
-    $run = AgentRunner::run($question, $ctx, SYSTEM_PROMPT, 1200, null, $history);
+    $run = AgentRunner::run($question, $ctx, $systemPrompt, 1200, null, $history);
 } catch (\Throwable $e) {
     llmFailure($businessId, $userId, $question, 'agente', $e, $t0);
 }

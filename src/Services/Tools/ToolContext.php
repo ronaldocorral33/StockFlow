@@ -25,6 +25,18 @@ final class ToolContext
     public function __construct(
         public readonly int $businessId,
         public readonly int $userId,
+        /**
+         * Fecha de referencia (Y-m-d) para resolver periodos relativos.
+         *
+         * Va en el CONTEXTO y no en los argumentos por la misma razón que business_id:
+         * "hoy" no es algo que el modelo deba decidir. Un LLM no sabe qué día es, y si
+         * se le deja adivinar usa la fecha de su corte de entrenamiento — un error
+         * silencioso, porque la consulta corre bien y responde por el mes equivocado.
+         *
+         * Es inyectable para que las pruebas de "este mes" sean deterministas: null
+         * significa el día de hoy real.
+         */
+        public readonly ?string $today = null,
     ) {
     }
 }
