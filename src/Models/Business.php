@@ -65,6 +65,11 @@ class Business
                 "INSERT INTO business_users (business_id, user_id, role_id, status, joined_at) VALUES (?, ?, 1, 'active', NOW())"
             )->execute([$businessId, $ownerUserId]);
 
+            // El negocio nace con su registro de campos canónicos, igual que los
+            // existentes lo recibieron en sql/006. Dentro de la misma transacción: un
+            // negocio a medio configurar sería peor que no crearlo.
+            AttributeDefinition::seedCanonical($businessId, $ownerUserId);
+
             $pdo->commit();
             return $businessId;
         } catch (\Throwable $e) {
