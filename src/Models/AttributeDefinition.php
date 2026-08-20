@@ -335,6 +335,71 @@ class AttributeDefinition
         'sale_date' => 'i.sale_date',
     ];
 
+    /** Tope de opciones por desplegable. Más allá de esto una lista deja de ayudar. */
+    public const MAX_FILTER_VALUES = 60;
+
+    /**
+     * Valores distintos de cada campo filtrable, para armar los desplegables.
+     *
+     * Se leen de los DATOS y no de la configuración: un campo de texto libre como
+     * "temporada" no declara sus opciones en ninguna parte, pero el negocio ya usa un
+     * conjunto acotado de valores. Ofrecer los que existen de verdad evita que el
+     * usuario tenga que recordar si escribió "2025/2026" o "25/26".
+     *
+     * Los campos con demasiados valores distintos se omiten: un desplegable de 5000
+     * productos no sirve para nada, y para eso está el buscador.
+     *
+     * @return array<string, array{values:array, truncated:bool}>
+     */
+    public static function filterValues(int $businessId): array
+    {
+        $pdo = Database::connection();
+        $out = [];
+
+        foreach (self::listRegistry($businessId) as $campo) {
+            if (!$campo['filterable']) {
+                continue;
+            }
+            $expr = self::sqlExpressionFor($campo);
+            if ($expr === null) {
+                continue;
+            }
+
+            $sql = "SELECT $expr AS valor, COUNT(*) AS n
+                    FROM inventory_items i
+                    LEFT JOIN suppliers s ON s.id = i.supplier_id
+                    LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
+                    WHERE i.business_id = ? AND $expr IS NOT NULL AND TRIM($expr) <> ''
+                    GROUP BY valor
+                    ORDER BY n DESC
+                    LIMIT " . (self::MAX_FILTER_VALUES + 1);
+            try {
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute([$businessId]);
+                $rows = $stmt->fetchAll();
+            } catch (\Throwable $e) {
+                error_log('[registry] valores de filtro ilegibles en ' . $campo['field_key'] . ': ' . $e->getMessage());
+                continue;
+            }
+
+            if (!$rows) {
+                continue;
+            }
+            $truncado = count($rows) > self::MAX_FILTER_VALUES;
+            if ($truncado) {
+                // Demasiados valores: se descarta el desplegable en vez de mostrar una
+                // lista arbitrariamente cortada, que haría creer que no hay más.
+                continue;
+            }
+
+            $out[$campo['field_key']] = [
+                'values' => array_map(fn($r) => ['valor' => (string)$r['valor'], 'n' => (int)$r['n']], $rows),
+                'truncated' => false,
+            ];
+        }
+
+        return $out;
+    }
     /**
      * Qué proporción de piezas tiene cada campo con algún valor.
      *

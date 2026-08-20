@@ -35,6 +35,39 @@ class InventoryItem
             $sql .= ' AND i.category = ?';
             $params[] = $filters['category'];
         }
+        // Filtros por cualquier campo FILTRABLE del registro, incluidos los atributos
+        // personalizados. Es el consumidor que le faltaba a la bandera `filterable`.
+        //
+        // Sin esto no había forma de aislar, por ejemplo, "las piezas del America con
+        // la temporada equivocada": había que reconocerlas a ojo entre 51 filas, con
+        // la columna de temporada oculta.
+        //
+        // La clave y la expresión SQL salen del REGISTRO, nunca de la petición: un
+        // campo que no exista o que no sea filtrable se ignora, así que ni un cliente
+        // manipulado puede filtrar por una columna arbitraria.
+        if (!empty($filters['attrs']) && is_array($filters['attrs'])) {
+            $registro = [];
+            foreach (AttributeDefinition::listRegistry($businessId) as $def) {
+                $registro[$def['field_key']] = $def;
+            }
+            foreach ($filters['attrs'] as $key => $val) {
+                if ($val === '' || $val === null || !isset($registro[$key])) {
+                    continue;
+                }
+                $def = $registro[$key];
+                if (!$def['filterable']) {
+                    continue;
+                }
+                $expr = AttributeDefinition::sqlExpressionFor($def);
+                if ($expr === null) {
+                    continue;
+                }
+                // Los alias i/s/po de la expresión coinciden con los JOIN de arriba.
+                $sql .= " AND $expr = ?";
+                $params[] = (string)$val;
+            }
+        }
+
         if (!empty($filters['purchase_order_id'])) {
             $sql .= ' AND i.purchase_order_id = ?';
             $params[] = (int)$filters['purchase_order_id'];

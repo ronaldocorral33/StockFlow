@@ -35,6 +35,9 @@ if ($method === 'GET') {
         'status' => $_GET['status'] ?? '',
         'category' => $_GET['category'] ?? '',
         'purchase_order_id' => $_GET['purchase_order_id'] ?? '',
+        // Filtros por campo del registro. Llegan como attr[clave]=valor; el modelo
+        // valida cada clave contra el registro, así que aquí no hace falta filtrar.
+        'attrs' => is_array($_GET['attr'] ?? null) ? $_GET['attr'] : [],
         'sort' => $_GET['sort'] ?? 'created_at',
         'dir' => $_GET['dir'] ?? 'desc',
     ];

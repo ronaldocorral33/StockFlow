@@ -254,6 +254,13 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
 .section-label:first-child{margin-top:0}
 
 /* ============ BULK BAR / CHAT ============ */
+/* Etiquetas de filtro activo: se ven sin abrir el panel, y se quitan de un clic. */
+.fchips{display:flex; flex-wrap:wrap; gap:7px; margin:0 0 12px}
+.fchips:empty{display:none}
+.fchip{display:inline-flex; align-items:center; gap:6px; font-size:.78rem; background:var(--royal-soft); color:var(--royal-deep); border:1px solid #d6dcfb; border-radius:20px; padding:4px 10px}
+.fchip b{font-weight:700}
+.fchip-x{display:inline-flex; cursor:pointer; opacity:.6; border-radius:50%}
+.fchip-x:hover{opacity:1}
 .bulkbar{
   display:none; align-items:center; gap:12px; flex-wrap:wrap; background:var(--royal-soft); border:1px solid #d6dcfb;
   border-radius:var(--radius-sm); padding:11px 15px; margin-bottom:12px; font-size:.85rem; font-weight:600; color:var(--royal-deep);

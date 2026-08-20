@@ -7,6 +7,9 @@ const Inventario = (() => {
   let sellingId = null;
   let metaLoaded = false;
   let avgSoldPrice = null; // precio de venta promedio histórico, para estimar piezas sin precio
+  // Filtros por campo del registro: { temporada: '2025/2026', version: 'Visita' }.
+  // Viven aquí porque son parte de la consulta, no de la configuración del negocio.
+  let attrFilters = {};
 
   // Las columnas ya no se escriben aquí: salen del registro de campos del negocio
   // (attribute_definitions), que el usuario controla desde el selector de columnas.
@@ -39,15 +42,26 @@ const Inventario = (() => {
     };
   }
 
+  /** Los filtros por atributo viajan como attr[clave]=valor. */
+  function attrQuery() {
+    const p = new URLSearchParams();
+    Object.entries(attrFilters).forEach(([k, v]) => {
+      if (v !== '' && v != null) p.append(`attr[${k}]`, v);
+    });
+    return p.toString();
+  }
+
   async function render() {
     await loadMeta();
     const f = currentFilters();
     const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v !== '')).toString();
-    const res = await Api.get('items.php?' + qs);
+    const extra = attrQuery();
+    const res = await Api.get('items.php?' + qs + (extra ? '&' + extra : ''));
     cache = res.items;
     renderKpis(cache);
     renderTable(cache);
     renderBulkBar();
+    renderFilterChips();
   }
 
   function renderKpis(items) {
@@ -129,6 +143,70 @@ const Inventario = (() => {
     }).join('');
   }
 
+  /**
+   * Panel de filtros por campo del registro.
+   *
+   * Sin esto no había forma de aislar "las piezas del America con la temporada
+   * equivocada": los únicos filtros eran búsqueda, estado, categoría y pedido, y la
+   * columna de temporada estaba oculta. Había que reconocerlas a ojo entre 51 filas.
+   *
+   * Los desplegables se llenan con los valores que EXISTEN en los datos, no con una
+   * lista configurada: así no hay que recordar si se escribió "2025/2026" o "25/26".
+   */
+  function openFilters() {
+    const campos = Fields.all().filter(f => f.filterable && f.filter_values && f.filter_values.length);
+
+    document.getElementById('filt-fields').innerHTML = campos.map(f => {
+      const actual = attrFilters[f.field_key] ?? '';
+      const opts = f.filter_values.map(v =>
+        `<option value="${esc(v.valor)}" ${v.valor === actual ? 'selected' : ''}>${esc(v.valor)} (${v.n})</option>`
+      ).join('');
+      return `<div class="beditrow">
+        <label class="beditchk" style="cursor:default"><span>${esc(f.label)}</span></label>
+        <div class="beditval">
+          <select onchange="Inventario.setAttrFilter('${f.field_key}', this.value)">
+            <option value="">— cualquiera —</option>${opts}
+          </select>
+        </div>
+      </div>`;
+    }).join('') || '<p class="muted" style="font-size:.82rem">No hay campos con datos para filtrar.</p>';
+
+    document.getElementById('filt-bg').classList.add('show');
+  }
+
+  function closeFilters() {
+    document.getElementById('filt-bg').classList.remove('show');
+  }
+
+  function setAttrFilter(key, value) {
+    if (value === '') { delete attrFilters[key]; } else { attrFilters[key] = value; }
+    // La selección se limpia: las piezas seleccionadas podrían ya no estar visibles, y
+    // aplicar un cambio en lote a algo que no ves es la peor forma de perder datos.
+    clearSel();
+    render();
+  }
+
+  function clearAttrFilters() {
+    attrFilters = {};
+    clearSel();
+    closeFilters();
+    render();
+  }
+
+  /** Etiquetas de los filtros activos, para que se vean sin abrir el panel. */
+  function renderFilterChips() {
+    const cont = document.getElementById('filt-chips');
+    if (!cont) return;
+    const claves = Object.keys(attrFilters);
+    const btn = document.getElementById('filt-btn-count');
+    if (btn) btn.textContent = claves.length ? ` (${claves.length})` : '';
+
+    cont.innerHTML = claves.map(k => {
+      const f = Fields.all().find(x => x.field_key === k);
+      return `<span class="fchip">${esc(f ? f.label : k)}: <b>${esc(attrFilters[k])}</b>
+        <span class="fchip-x" onclick="Inventario.setAttrFilter('${k}', '')" title="Quitar">${icon('x', 12)}</span></span>`;
+    }).join('');
+  }
   /** Abre el selector de columnas de esta tabla y la redibuja al cambiar. */
   function pickColumns() {
     Fields.openPicker('inventory', () => renderTable(cache));
@@ -145,7 +223,11 @@ const Inventario = (() => {
   }
 
   function toggleAll(on) {
-    cache.forEach(r => { if (!r.sale_date) { if (on) selected.add(r.id); else selected.delete(r.id); } });
+    // Antes solo seleccionaba piezas en stock, porque las únicas acciones de lote
+    // eran asignar fecha de llegada y vender. Corregir un atributo mal capturado
+    // aplica también a las YA VENDIDAS, y excluirlas dejaba imposible arreglarlas.
+    // La venta en lote filtra las vendidas por su cuenta, así que esto es seguro.
+    cache.forEach(r => { if (on) selected.add(r.id); else selected.delete(r.id); });
     renderBulkBar();
     renderTable(cache);
   }
@@ -440,6 +522,7 @@ const Inventario = (() => {
 
   return {
     render, setSort, pickColumns, toggleOne, toggleAll, clearSel,
+    openFilters, closeFilters, setAttrFilter, clearAttrFilters,
     openBulkEdit, bulkEditToggle, bulkEditSummary, closeBulkEdit, confirmBulkEdit,
     openBulkArrival, openBulkSell, applyBulkPrice, bulkRowCalc, closeBulk, confirmBulkSell,
     openSell, sellCalc, closeSell, confirmSell, voidSale, remove,

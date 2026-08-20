@@ -17,6 +17,7 @@ if ($method === 'GET') {
     if (($_GET['scope'] ?? '') === 'registry') {
         $campos = AttributeDefinition::listRegistry($businessId);
         $llenado = AttributeDefinition::fillRates($businessId);
+        $valores = AttributeDefinition::filterValues($businessId);
 
         // La tasa de llenado viaja junto a cada campo para que el selector pueda
         // avisar "esta columna está vacía". Es lo que convierte una lista de casillas
@@ -29,6 +30,7 @@ if ($method === 'GET') {
         foreach ($campos as $i => $c) {
             $campos[$i]['fill_rate'] = $llenado[$c['field_key']] ?? null;
             $campos[$i]['editable'] = isset($editables[$c['field_key']]);
+            $campos[$i]['filter_values'] = $valores[$c['field_key']]['values'] ?? null;
         }
         json_response([
             'fields' => $campos,

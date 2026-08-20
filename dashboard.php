@@ -144,8 +144,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
           </select>
           <select id="filt-categoria" onchange="Inventario.render()"></select>
           <select id="filt-pedido" onchange="Inventario.render()"></select>
+          <button class="btn ghost sm" onclick="Inventario.openFilters()" title="Filtrar por cualquier campo"><?= icon('filter', 14) ?> Filtros<span id="filt-btn-count"></span></button>
           <button class="btn ghost sm" onclick="Inventario.pickColumns()" title="Elegir qué columnas ver"><?= icon('sliders', 14) ?> Columnas</button>
         </div>
+        <div id="filt-chips" class="fchips"></div>
         <div id="bulkbar" class="bulkbar"></div>
         <div class="tablecard"><div class="tscroll"><table>
           <thead><tr id="head-inv"></tr></thead><tbody id="body-inv"></tbody>
@@ -224,6 +226,19 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
   </div>
 </div>
 
+<div class="modal-bg" id="filt-bg">
+  <div class="modal" style="max-width:520px">
+    <h2><span><?= icon('filter', 17) ?> Filtrar inventario</span><span class="x" onclick="Inventario.closeFilters()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <p class="muted" style="font-size:.82rem; margin-bottom:14px">Filtra por cualquier campo con datos. El número entre paréntesis es cuántas piezas tienen ese valor.</p>
+      <div id="filt-fields"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="Inventario.clearAttrFilters()">Limpiar todo</button>
+      <button class="btn primary" onclick="Inventario.closeFilters()">Listo</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="bedit-bg">
   <div class="modal" style="max-width:580px">
     <h2><span><?= icon('edit', 17) ?> Editar <span id="bedit-count">0</span> pieza(s) a la vez</span><span class="x" onclick="Inventario.closeBulkEdit()"><?= icon('x', 18) ?></span></h2>
