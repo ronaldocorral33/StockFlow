@@ -21,8 +21,14 @@ if ($method === 'GET') {
         // La tasa de llenado viaja junto a cada campo para que el selector pueda
         // avisar "esta columna está vacía". Es lo que convierte una lista de casillas
         // en una decisión informada.
+        // El frontend necesita saber qué campos se pueden escribir para generar el
+        // formulario de edición en lote. La lista la decide el modelo, no el cliente.
+        $editables = array_column(AttributeDefinition::editableFields($businessId), 'field_key');
+        $editables = array_flip($editables);
+
         foreach ($campos as $i => $c) {
             $campos[$i]['fill_rate'] = $llenado[$c['field_key']] ?? null;
+            $campos[$i]['editable'] = isset($editables[$c['field_key']]);
         }
         json_response([
             'fields' => $campos,

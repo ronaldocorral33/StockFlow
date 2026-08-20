@@ -159,11 +159,112 @@ const Inventario = (() => {
     if (!n) return;
     bar.innerHTML = `
       <span>${n} seleccionada${n === 1 ? '' : 's'}</span>
+      <button class="btn sm ghost" onclick="Inventario.openBulkEdit()">${icon('edit', 14)} Editar seleccionadas</button>
       <button class="btn sm ghost" onclick="Inventario.openBulkArrival()">${icon('inbox', 14)} Asignar fecha de llegada</button>
       <button class="btn sm gold" onclick="Inventario.openBulkSell()">${icon('dollar', 14)} Vender seleccionadas</button>
       <button class="btn sm ghost" onclick="Inventario.clearSel()">Cancelar</button>`;
   }
 
+  /**
+   * Edición en lote.
+   *
+   * El formulario se genera desde el registro de campos, así que sirve para cualquier
+   * campo de cualquier negocio: una refaccionaria que configure "marca" la ve aquí sin
+   * que nadie escriba código.
+   *
+   * CADA CAMPO LLEVA SU PROPIA CASILLA, y solo se envían los marcados. Es lo que
+   * distingue "no toques este campo" de "pon este campo en blanco". Sin esa
+   * distinción, corregir la versión de 116 piezas les borraría el costo.
+   */
+  function openBulkEdit() {
+    if (!selected.size) return;
+    const campos = Fields.all().filter(f => f.editable);
+
+    document.getElementById('bedit-count').textContent = selected.size;
+    document.getElementById('bedit-fields').innerHTML = campos.map(f => {
+      const opciones = (f.field_type === 'select' && Array.isArray(f.options))
+        ? `<select id="be-v-${f.id}" disabled onchange="Inventario.bulkEditSummary()"><option value="">— sin valor —</option>` +
+          f.options.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('') + '</select>'
+        : `<input id="be-v-${f.id}" type="${f.field_type === 'number' ? 'number' : (f.field_type === 'date' ? 'date' : 'text')}" disabled oninput="Inventario.bulkEditSummary()">`;
+
+      return `<div class="beditrow">
+        <label class="beditchk">
+          <input type="checkbox" id="be-c-${f.id}" onchange="Inventario.bulkEditToggle(${f.id})">
+          <span>${esc(f.label)}</span>
+        </label>
+        <div class="beditval">${opciones}</div>
+      </div>`;
+    }).join('');
+
+    document.getElementById('bedit-summary').innerHTML =
+      '<span class="muted">Marca los campos que quieres cambiar.</span>';
+    document.getElementById('bedit-bg').classList.add('show');
+  }
+
+  /** La casilla habilita su campo: un campo deshabilitado no se envía. */
+  function bulkEditToggle(id) {
+    const on = document.getElementById(`be-c-${id}`).checked;
+    const input = document.getElementById(`be-v-${id}`);
+    input.disabled = !on;
+    if (on) input.focus();
+    bulkEditSummary();
+  }
+
+  /** Resumen de lo que va a pasar, antes de aplicarlo. */
+  function bulkEditSummary() {
+    const cambios = collectBulkEdit();
+    const claves = Object.keys(cambios);
+    const box = document.getElementById('bedit-summary');
+    if (!claves.length) {
+      box.innerHTML = '<span class="muted">Marca los campos que quieres cambiar.</span>';
+      return;
+    }
+    const detalle = claves.map(k => {
+      const f = Fields.all().find(x => x.field_key === k);
+      const v = cambios[k];
+      return `<b>${esc(f.label)}</b> → ${v === '' ? '<i>vaciar</i>' : esc(v)}`;
+    }).join('<br>');
+    box.innerHTML = `Se aplicará a <b>${selected.size}</b> pieza(s):<br>${detalle}`;
+  }
+
+  /** Solo los campos con casilla marcada. */
+  function collectBulkEdit() {
+    const out = {};
+    Fields.all().filter(f => f.editable).forEach(f => {
+      const chk = document.getElementById(`be-c-${f.id}`);
+      if (chk && chk.checked) {
+        out[f.field_key] = document.getElementById(`be-v-${f.id}`).value;
+      }
+    });
+    return out;
+  }
+
+  function closeBulkEdit() {
+    document.getElementById('bedit-bg').classList.remove('show');
+  }
+
+  async function confirmBulkEdit() {
+    const fields = collectBulkEdit();
+    if (!Object.keys(fields).length) {
+      toast('Marca al menos un campo');
+      return;
+    }
+    const btn = document.getElementById('bedit-go');
+    btn.disabled = true;
+    btn.textContent = 'Aplicando…';
+    try {
+      const res = await Api.post('items.php?action=bulk-update', { ids: [...selected], fields });
+      toast(`${res.updated} pieza(s) actualizada(s): ${res.fields.join(', ')}`);
+      closeBulkEdit();
+      clearSel();
+      render();
+    } catch (e) {
+      toast('No se pudieron aplicar los cambios');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Aplicar cambios';
+    }
+  }
   async function openBulkArrival() {
     const fecha = prompt('Fecha de llegada (YYYY-MM-DD):', today());
     if (!fecha) return;
@@ -339,6 +440,7 @@ const Inventario = (() => {
 
   return {
     render, setSort, pickColumns, toggleOne, toggleAll, clearSel,
+    openBulkEdit, bulkEditToggle, bulkEditSummary, closeBulkEdit, confirmBulkEdit,
     openBulkArrival, openBulkSell, applyBulkPrice, bulkRowCalc, closeBulk, confirmBulkSell,
     openSell, sellCalc, closeSell, confirmSell, voidSale, remove,
     openModal, modalCalc, closeModal, save,

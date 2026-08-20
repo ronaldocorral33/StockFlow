@@ -222,6 +222,14 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
 .colopt-l{font-size:.87rem; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .colhint{font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); background:var(--surface-2); padding:1px 6px; border-radius:20px}
 .colhint.warn{color:var(--amber); background:var(--amber-soft)}
+/* Edición en lote: una fila por campo, casilla a la izquierda y valor a la derecha. */
+.beditrow{display:grid; grid-template-columns:minmax(140px,42%) 1fr; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid var(--line-soft)}
+.beditrow:last-child{border-bottom:none}
+.beditchk{display:flex; align-items:center; gap:8px; cursor:pointer; font-size:.86rem}
+.beditchk input{accent-color:var(--royal); flex:none; width:15px; height:15px}
+.beditval input, .beditval select{font:inherit; font-size:.85rem; width:100%; border:1px solid var(--line); border-radius:var(--radius-sm); padding:7px 9px; background:var(--paper)}
+.beditval input:disabled, .beditval select:disabled{background:var(--surface); color:var(--ink-faint); cursor:not-allowed}
+.beditval input:focus, .beditval select:focus{outline:none; border-color:var(--royal); box-shadow:0 0 0 3px var(--royal-ring)}
 .modal-bg{position:fixed; inset:0; background:rgba(11,15,26,.42); backdrop-filter:blur(2px); display:none; align-items:flex-start; justify-content:center; z-index:100; padding:6vh 12px; overflow-y:auto}
 .modal-bg.show{display:flex}
 .modal{background:var(--paper); border-radius:var(--radius-lg); width:100%; max-width:640px; box-shadow:var(--shadow-lg); animation:modal-in .28s var(--ease)}

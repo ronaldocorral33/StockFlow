@@ -185,6 +185,128 @@ class InventoryItem
         return $stmt->rowCount();
     }
 
+    /**
+     * Aplica los MISMOS cambios a varias piezas de golpe.
+     *
+     * EL CASO REAL QUE RESUELVE
+     * Llega un pedido de 116 jerseys y se capturan sin especificar la versión. Hoy la
+     * única salida es abrir 116 veces el formulario de edición. Con esto se seleccionan
+     * y se corrigen en un clic.
+     *
+     * TRES DECISIONES QUE EVITAN PERDER DATOS
+     *
+     * 1. Solo se toca lo que viene en $data. Un campo ausente NO se pone en blanco.
+     *    Sin esta regla, editar la versión de 116 piezas les borraría el costo.
+     *
+     * 2. Los atributos personalizados se MEZCLAN, no se reemplazan. Se usa JSON_SET,
+     *    que conserva las demás claves: poner la versión no debe borrar la talla ni la
+     *    liga. Escribir el JSON completo habría sido más simple y habría destruido
+     *    datos silenciosamente.
+     *
+     * 3. Los campos permitidos salen del REGISTRO, no de la petición. Un campo que no
+     *    esté ahí se ignora, así que ni un cliente malicioso ni un bug del frontend
+     *    pueden escribir una columna que no corresponde.
+     *
+     * Todo corre en una transacción: 116 piezas a medio actualizar serían peor que
+     * ninguna.
+     *
+     * @param array $ids Piezas a modificar.
+     * @param array $data field_key => valor. '' significa VACIAR ese campo.
+     * @return array{updated:int, fields:array} cuántas filas y qué campos se tocaron.
+     */
+    public static function bulkUpdate(int $businessId, int $actorUserId, array $ids, array $data): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn($i) => $i > 0)));
+        if (!$ids || !$data) {
+            return ['updated' => 0, 'fields' => []];
+        }
+
+        $permitidos = [];
+        foreach (AttributeDefinition::editableFields($businessId) as $f) {
+            $permitidos[$f['field_key']] = $f;
+        }
+
+        $sets = [];
+        $params = [];
+        $tocados = [];
+        $pdo = Database::connection();
+
+        foreach ($data as $key => $valor) {
+            if (!isset($permitidos[$key])) {
+                continue;   // no está en el registro: se ignora en silencio
+            }
+            $campo = $permitidos[$key];
+            $vacio = $valor === null || $valor === '';
+
+            if ($campo['storage'] === AttributeDefinition::STORAGE_JSON) {
+                if ($vacio) {
+                    // Vaciar un atributo es quitar la clave, no dejarla en "".
+                    $sets[] = "attributes = JSON_REMOVE(COALESCE(attributes, '{}'), ?)";
+                    $params[] = '$."' . preg_replace('/[^a-zA-Z0-9_]/', '', $key) . '"';
+                } else {
+                    // COALESCE porque JSON_SET(NULL, ...) devuelve NULL: una pieza sin
+                    // atributos habría quedado sin el dato nuevo.
+                    $sets[] = "attributes = JSON_SET(COALESCE(attributes, '{}'), ?, ?)";
+                    $params[] = '$."' . preg_replace('/[^a-zA-Z0-9_]/', '', $key) . '"';
+                    $params[] = (string)$valor;
+                }
+                $tocados[] = $campo['label'];
+                continue;
+            }
+
+            // Campos canónicos. Los dos que se resuelven por JOIN necesitan traducción:
+            // el usuario escribe un nombre o un número, no un id interno.
+            if ($key === 'supplier') {
+                $sets[] = 'supplier_id = ?';
+                $params[] = $vacio ? null : Supplier::resolveOrCreate($businessId, $actorUserId, (string)$valor);
+                $tocados[] = $campo['label'];
+                continue;
+            }
+            if ($key === 'order_number') {
+                $sets[] = 'purchase_order_id = ?';
+                $params[] = $vacio ? null : PurchaseOrder::resolveOrCreate($businessId, $actorUserId, $valor);
+                $tocados[] = $campo['label'];
+                continue;
+            }
+
+            $sets[] = "$key = ?";
+            if (in_array($key, ['cost', 'shipping_cost', 'sale_price'], true)) {
+                $params[] = $vacio ? null : self::requireNumber($valor, $campo['label']);
+            } else {
+                $params[] = $vacio ? null : trim((string)$valor);
+            }
+            $tocados[] = $campo['label'];
+        }
+
+        if (!$sets) {
+            return ['updated' => 0, 'fields' => []];
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $ph = implode(',', array_fill(0, count($ids), '?'));
+            $sql = 'UPDATE inventory_items SET ' . implode(', ', $sets)
+                . " WHERE id IN ($ph) AND business_id = ?";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([...$params, ...$ids, $businessId]);
+            $n = $stmt->rowCount();
+
+            // Si se movieron piezas de pedido, los contadores denormalizados mienten.
+            if (isset($data['order_number'])) {
+                foreach ($pdo->query(
+                    'SELECT id FROM purchase_orders WHERE business_id = ' . (int)$businessId
+                )->fetchAll() as $po) {
+                    PurchaseOrder::refreshItemCount($businessId, (int)$po['id']);
+                }
+            }
+
+            $pdo->commit();
+            return ['updated' => $n, 'fields' => array_values(array_unique($tocados))];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
     public static function voidSale(int $id, int $businessId): void
     {
         $stmt = Database::connection()->prepare(
@@ -221,6 +343,34 @@ class InventoryItem
         $stmt->execute([$businessId]);
         $avg = $stmt->fetchColumn();
         return $avg !== null && $avg !== false ? round((float)$avg) : null;
+    }
+
+    /**
+     * Convierte un valor a número o FALLA en voz alta.
+     *
+     * Existe porque numOrNull() devuelve null cuando no puede interpretar el valor, y
+     * en una edición en lote eso es destructivo: escribir "1,250" —con la coma que
+     * cualquiera teclea— habría puesto el costo en NULL en las 116 piezas
+     * seleccionadas, sin un solo aviso.
+     *
+     * Aquí se separan los dos casos que numOrNull confunde:
+     *   · "1,250.50" es un número escrito por una persona → se normaliza.
+     *   · "abc" es un error → se rechaza con un mensaje que nombra el campo.
+     *
+     * Vaciar un campo sigue siendo posible, pero solo de forma explícita: mandando
+     * el valor vacío, que se maneja antes de llegar aquí.
+     */
+    private static function requireNumber($v, string $label): float
+    {
+        // Se aceptan separadores de miles y símbolos de moneda: es lo que la gente
+        // escribe. Se conservan solo dígitos, punto decimal y signo.
+        $limpio = preg_replace('/[^0-9.\-]/', '', (string)$v);
+        if ($limpio === '' || !is_numeric($limpio)) {
+            throw new \InvalidArgumentException(
+                "\"{$v}\" no es un número válido para el campo \"{$label}\"."
+            );
+        }
+        return (float)$limpio;
     }
 
     private static function numOrNull($v): ?float

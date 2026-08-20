@@ -69,6 +69,33 @@ if ($method === 'POST' && $action === 'bulk-arrival') {
     json_response(['ok' => true, 'count' => $count]);
 }
 
+if ($method === 'POST' && $action === 'bulk-update') {
+    // Editar en lote es editar inventario: exige el permiso de edición, no el de
+    // creación. Un rol que solo puede dar de alta piezas no debería poder reescribir
+    // 116 de golpe.
+    Authz::require('update', 'inventory_items');
+    $body = json_body();
+
+    $ids = $body['ids'] ?? [];
+    $fields = $body['fields'] ?? [];
+    if (!is_array($ids) || !$ids) {
+        json_response(['error' => 'No seleccionaste ninguna pieza.'], 422);
+    }
+    if (!is_array($fields) || !$fields) {
+        json_response(['error' => 'No marcaste ningún campo para cambiar.'], 422);
+    }
+
+    try {
+        $r = InventoryItem::bulkUpdate($businessId, $userId, $ids, $fields);
+    } catch (\InvalidArgumentException $e) {
+        // Dato inválido del usuario: se le dice qué corregir, y NADA se modificó.
+        json_response(['error' => $e->getMessage()], 422);
+    } catch (\Throwable $e) {
+        error_log('[bulk-update] ' . $e->getMessage());
+        json_response(['error' => 'No se pudieron aplicar los cambios.'], 500);
+    }
+    json_response(['ok' => true] + $r);
+}
 if ($method === 'POST' && $action === 'void-sale' && $id > 0) {
     Authz::require('sell', 'inventory_items');
     InventoryItem::voidSale($id, $businessId);

@@ -398,6 +398,44 @@ class AttributeDefinition
         return $out;
     }
     /**
+     * Campos que NO se pueden escribir, y por qué.
+     *
+     * - total_cost y profit son columnas GENERADAS por MariaDB: intentar escribirlas
+     *   es un error de SQL, no una decisión de producto.
+     * - sale_date marca una pieza como vendida. Asignarla en lote sin precio dejaría
+     *   piezas "vendidas" sin venta, corrompiendo el estado que distingue stock de
+     *   vendido. Para eso existe la venta en lote, que pide precio.
+     */
+    private const NOT_WRITABLE = ['total_cost', 'profit', 'sale_date'];
+
+    /**
+     * Campos editables del negocio, listos para un formulario generado.
+     *
+     * Sale del REGISTRO, así que un negocio que configure "material" o "IMEI" los
+     * obtiene en el formulario de edición en lote sin que nadie escriba código. Es la
+     * razón por la que valió la pena construir el registro antes que esta pantalla.
+     */
+    public static function editableFields(int $businessId): array
+    {
+        $campos = array_filter(
+            self::listRegistry($businessId),
+            fn($f) => $f['field_type'] !== 'computed'
+                && !in_array($f['field_key'], self::NOT_WRITABLE, true)
+        );
+
+        // Se agrupan canónicos primero y personalizados después, como en las tablas.
+        // Sin esto salen entremezclados, porque cada grupo numera su sort_order por
+        // separado y un formulario con "Liga, Producto, Talla, Costo" en ese orden es
+        // difícil de recorrer.
+        $canon = array_filter($campos, fn($f) => $f['storage'] === self::STORAGE_COLUMN);
+        $custom = array_filter($campos, fn($f) => $f['storage'] === self::STORAGE_JSON);
+        $porOrden = fn($a, $b) => ($a['sort_order'] <=> $b['sort_order']) ?: ($a['id'] <=> $b['id']);
+        usort($canon, $porOrden);
+        usort($custom, $porOrden);
+
+        return array_values(array_merge($canon, $custom));
+    }
+    /**
      * El campo marcado como product_name, o null.
      *
      * Lo consumirá la Fase 3C: hoy SchemaSemantics asume que el producto es 'name'

@@ -224,6 +224,20 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
   </div>
 </div>
 
+<div class="modal-bg" id="bedit-bg">
+  <div class="modal" style="max-width:580px">
+    <h2><span><?= icon('edit', 17) ?> Editar <span id="bedit-count">0</span> pieza(s) a la vez</span><span class="x" onclick="Inventario.closeBulkEdit()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <p class="muted" style="font-size:.82rem; margin-bottom:14px">Marca solo los campos que quieras cambiar. Los que dejes sin marcar se quedan como están en cada pieza.</p>
+      <div id="bedit-fields"></div>
+      <div id="bedit-summary" style="margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 14px;font-size:.85rem;line-height:1.6"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="Inventario.closeBulkEdit()">Cancelar</button>
+      <button class="btn primary" id="bedit-go" onclick="Inventario.confirmBulkEdit()">Aplicar cambios</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="cols-bg">
   <div class="modal" style="max-width:520px">
     <h2><span><?= icon('sliders', 17) ?> <span id="cols-title">Columnas</span></span><span class="x" onclick="Fields.closePicker()"><?= icon('x', 18) ?></span></h2>
