@@ -403,6 +403,110 @@ class Analytics
     }
 
     // ---------------------------------------------------------------
+    // disponibilidad
+    // ---------------------------------------------------------------
+
+    /**
+     * Totales, vendidas y disponibles por dimensión, en UN solo resultado.
+     *
+     * POR QUÉ HACÍA FALTA
+     * "¿Qué tallas repongo y cuáles tengo disponibles?" necesita las tres cifras a la
+     * vez. Con las herramientas anteriores el modelo tenía que pedir el ranking de
+     * ventas, pedir el stock, y COSER los dos resultados en el texto de su respuesta.
+     * Eso reintroduce justo el problema que estas herramientas vinieron a resolver: el
+     * modelo haciendo aritmética, y la tabla estructurada del frontend mostrando solo
+     * la mitad de los datos que menciona la prosa.
+     *
+     * Al calcular las tres columnas en la misma consulta agrupada, además, quedan
+     * garantizadas cuadrando entre sí: disponibles = totales − vendidas, siempre.
+     */
+    public static function disponibilidad(ToolContext $ctx, array $args): array
+    {
+        $bid = $ctx->businessId;
+
+        $dim = self::resolveDimension($bid, $args['dimension'] ?? null);
+        if (isset($dim['error'])) {
+            return $dim;
+        }
+        if (!$dim['usable']) {
+            return [
+                'encontrado' => false,
+                'motivo' => sprintf('La dimensión "%s" no tiene datos en este negocio.', $dim['label']),
+                'dimensiones_con_datos' => self::usableLabels($bid),
+            ];
+        }
+
+        $filtros = self::buildFilters($bid, $args['filtros'] ?? []);
+        if (isset($filtros['error'])) {
+            return ['encontrado' => false, 'motivo' => $filtros['error']];
+        }
+
+        $expr = SchemaSemantics::sqlExpression($dim);
+        $where = ['i.business_id = ?'];
+        $params = [$bid];
+        foreach ($filtros['clauses'] as $c) { $where[] = $c; }
+        foreach ($filtros['params'] as $p) { $params[] = $p; }
+
+        // Sin filtro de fecha a propósito: la pregunta es sobre el estado ACTUAL del
+        // inventario, no sobre un periodo. Meter un rango dejaría "totales" contando
+        // solo lo comprado en ese lapso, y la resta ya no cuadraría con el stock real.
+        $sql = "SELECT $expr AS valor,
+                       COUNT(*) AS totales,
+                       SUM(i.sale_date IS NOT NULL) AS vendidas,
+                       SUM(i.sale_date IS NULL) AS disponibles,
+                       COALESCE(SUM(CASE WHEN i.sale_date IS NULL THEN i.total_cost ELSE 0 END), 0) AS invertido_disponible,
+                       COALESCE(SUM(CASE WHEN i.sale_date IS NOT NULL THEN i.sale_price ELSE 0 END), 0) AS ingresos
+                FROM inventory_items i
+                LEFT JOIN suppliers s ON s.id = i.supplier_id
+                WHERE " . implode(' AND ', $where) . "
+                  AND $expr IS NOT NULL AND TRIM($expr) <> ''
+                GROUP BY valor
+                ORDER BY disponibles ASC, vendidas DESC";
+
+        $rows = self::run($sql, $params);
+        if ($rows === null) {
+            return ['encontrado' => false, 'motivo' => 'No se pudo consultar la base de datos.'];
+        }
+        if (!$rows) {
+            return [
+                'encontrado' => false,
+                'motivo' => 'No hay piezas con esos criterios'
+                    . ($filtros['descripcion'] ? ' (' . $filtros['descripcion'] . ')' : '') . '.',
+                'dimension' => $dim['key'],
+            ];
+        }
+
+        $resultados = [];
+        $agotados = [];
+        foreach ($rows as $r) {
+            $fila = [
+                'valor' => $r['valor'],
+                'totales' => (int)$r['totales'],
+                'vendidas' => (int)$r['vendidas'],
+                'disponibles' => (int)$r['disponibles'],
+                'invertido_disponible' => (float)$r['invertido_disponible'],
+                'ingresos' => (float)$r['ingresos'],
+            ];
+            $resultados[] = $fila;
+            if ($fila['disponibles'] === 0 && $fila['vendidas'] > 0) {
+                $agotados[] = $fila['valor'];
+            }
+        }
+
+        return [
+            'encontrado' => true,
+            'dimension' => $dim['key'],
+            'label' => $dim['label'],
+            'filtros_aplicados' => $filtros['descripcion'] ?: null,
+            // Ordenado por disponibles ascendente: lo primero de la lista es lo que
+            // hay que reponer. El orden ya ES la respuesta a "qué repongo".
+            'resultados' => $resultados,
+            'agotados' => $agotados,
+            'nota' => 'disponibles = totales − vendidas, calculado sobre el inventario actual '
+                . '(sin filtro de periodo).',
+        ];
+    }
+    // ---------------------------------------------------------------
     // Apoyo
     // ---------------------------------------------------------------
 

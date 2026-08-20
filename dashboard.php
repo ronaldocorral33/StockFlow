@@ -340,6 +340,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
 <script src="<?= esc(asset('assets/js/salidas.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/inventario.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/reportes.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/markdown.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/chat.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/importExport.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/app.js')) ?>"></script>

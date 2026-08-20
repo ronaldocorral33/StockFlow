@@ -362,3 +362,94 @@ test('MODULARIDAD: una dimensión nueva funciona sin función propia', function 
     $limpiar();
     App\Services\Agent\SchemaSemantics::flush(907);
 });
+
+// ---------------------------------------------------------------
+// disponibilidad: totales, vendidas y disponibles en un solo resultado
+// ---------------------------------------------------------------
+
+test('disponibilidad devuelve las tres cifras y CUADRAN entre sí', function () use ($ctx) {
+    // Es la razón de existir de esta herramienta: antes el modelo pedía el ranking de
+    // ventas y el stock por separado y restaba en su respuesta. Calculadas en la misma
+    // consulta agrupada, no pueden descuadrar.
+    $r = Analytics::disponibilidad($ctx, ['dimension' => 'talla']);
+    assertTrue($r['encontrado']);
+    foreach ($r['resultados'] as $fila) {
+        assertSame(
+            $fila['totales'],
+            $fila['vendidas'] + $fila['disponibles'],
+            "en {$fila['valor']}: disponibles + vendidas debe ser igual a totales"
+        );
+    }
+});
+
+test('viene ordenado por disponibles: el orden ES la prioridad de reposición', function () use ($ctx) {
+    $r = Analytics::disponibilidad($ctx, ['dimension' => 'talla']);
+    $disp = array_column($r['resultados'], 'disponibles');
+    $ordenado = $disp;
+    sort($ordenado);
+    assertSame($ordenado, $disp, 'de menos a más disponibles');
+});
+
+test('cuadra con un conteo directo', function () use ($ctx) {
+    $r = Analytics::disponibilidad($ctx, ['dimension' => 'name']);
+    $db = App\Database::connection();
+    foreach (array_slice($r['resultados'], 0, 5) as $fila) {
+        $stmt = $db->prepare(
+            'SELECT COUNT(*) t, SUM(sale_date IS NOT NULL) v, SUM(sale_date IS NULL) d
+             FROM inventory_items WHERE business_id = 1 AND name = ?'
+        );
+        $stmt->execute([$fila['valor']]);
+        $e = $stmt->fetch();
+        assertSame((int)$e['t'], $fila['totales'], "totales de {$fila['valor']}");
+        assertSame((int)$e['v'], $fila['vendidas'], "vendidas de {$fila['valor']}");
+        assertSame((int)$e['d'], $fila['disponibles'], "disponibles de {$fila['valor']}");
+    }
+});
+
+test('acepta filtros combinados, como una talla dentro de un producto y versión', function () use ($ctx) {
+    // El caso real: "tallas de America Visita".
+    $r = Analytics::disponibilidad($ctx, [
+        'dimension' => 'talla',
+        'filtros' => [
+            ['campo' => 'name', 'operador' => 'eq', 'valor' => 'America'],
+            ['campo' => 'version', 'operador' => 'eq', 'valor' => 'Visita'],
+        ],
+    ]);
+    assertTrue($r['encontrado']);
+    assertTrue(count($r['resultados']) > 0);
+    assertTrue($r['filtros_aplicados'] !== null, 'debe reportar qué filtros aplicó');
+
+    // Y el total filtrado debe coincidir con el conteo directo.
+    $db = App\Database::connection();
+    $esperado = (int)$db->query(
+        "SELECT COUNT(*) FROM inventory_items
+         WHERE business_id = 1 AND name = 'America'
+           AND JSON_UNQUOTE(JSON_EXTRACT(attributes, '\$.\"version\"')) = 'Visita'
+           AND JSON_UNQUOTE(JSON_EXTRACT(attributes, '\$.\"talla\"')) IS NOT NULL"
+    )->fetchColumn();
+    assertSame($esperado, array_sum(array_column($r['resultados'], 'totales')));
+});
+
+test('señala los valores agotados por separado', function () use ($ctx) {
+    $r = Analytics::disponibilidad($ctx, ['dimension' => 'name']);
+    foreach ($r['agotados'] as $v) {
+        foreach ($r['resultados'] as $fila) {
+            if ($fila['valor'] === $v) {
+                assertSame(0, $fila['disponibles'], "{$v} se marcó agotado pero tiene stock");
+                assertTrue($fila['vendidas'] > 0, 'agotado implica que sí se vendió');
+            }
+        }
+    }
+});
+
+test('una dimensión vacía se rechaza, no devuelve un grupo inventado', function () use ($ctx) {
+    $r = Analytics::disponibilidad($ctx, ['dimension' => 'category']);
+    assertSame(false, $r['encontrado']);
+    assertTrue(str_contains($r['motivo'], 'no tiene datos'));
+});
+
+test('una dimensión inexistente se rechaza', function () use ($ctx) {
+    $r = Analytics::disponibilidad($ctx, ['dimension' => 'inventada']);
+    assertSame(false, $r['encontrado']);
+    assertTrue(str_contains($r['motivo'], 'no existe'));
+});

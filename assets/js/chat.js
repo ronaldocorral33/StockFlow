@@ -42,7 +42,15 @@ const Chat = (() => {
 
     try {
       const res = await Api.post('chat.php', { question, conversation_id: conversationId });
-      thinking.innerHTML = esc(res.answer) + rowsTable(res.rows);
+
+      // El modelo responde en Markdown; antes se pintaba con esc() y se veía como
+      // texto crudo (asteriscos sueltos y tablas convertidas en filas de barras).
+      const cuerpo = Markdown.render(res.answer);
+
+      // Si la respuesta ya trae su propia tabla, no se dibuja la de datos: serían dos
+      // tablas de lo mismo, y hasta ahora mostraban cifras distintas porque la
+      // herramienta devolvía menos columnas de las que el texto mencionaba.
+      thinking.innerHTML = cuerpo + (Markdown.hasTable(res.answer) ? '' : rowsTable(res.rows));
     } catch (e) {
       thinking.innerHTML = '<span class="muted">No pude responder esa pregunta.</span>';
     }

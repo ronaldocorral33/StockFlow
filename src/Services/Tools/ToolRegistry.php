@@ -247,6 +247,24 @@ class ToolRegistry
                 ],
             ],
             [
+                'name' => 'disponibilidad',
+                'description' =>
+                    'PREFERIDA para "qué repongo", "qué me queda" o cualquier pregunta que '
+                    . 'necesite comparar lo vendido contra lo disponible. Devuelve, por cada '
+                    . 'valor de la dimensión, las piezas TOTALES, las VENDIDAS y las '
+                    . 'DISPONIBLES en una sola consulta, ordenadas de menos a más disponibles. '
+                    . 'No pidas el ranking y el stock por separado para restarlos tú: usa esta.',
+                'parameters' => [
+                    'type' => 'object',
+                    'additionalProperties' => false,
+                    'required' => ['dimension'],
+                    'properties' => [
+                        'dimension' => $dimensionSchema,
+                        'filtros' => $filtrosSchema,
+                    ],
+                ],
+            ],
+            [
                 'name' => 'productos_agotados',
                 'description' =>
                     'Valores de una dimensión que se vendieron completos y ya NO tienen existencias. '
@@ -269,6 +287,7 @@ class ToolRegistry
         'resumen_ventas' => ['reports', 'view'],
         'comparar_periodos' => ['reports', 'view'],
         'consultar_stock' => ['inventory_items', 'view'],
+        'disponibilidad' => ['inventory_items', 'view'],
         'productos_agotados' => ['inventory_items', 'view'],
         'consultar_inventario' => ['inventory_items', 'view'],
         'proyectar_ventas' => ['reports', 'view'],
@@ -300,6 +319,7 @@ class ToolRegistry
                 'resumen_ventas' => Analytics::resumenVentas($ctx, $args),
                 'comparar_periodos' => Analytics::compararPeriodos($ctx, $args),
                 'consultar_stock' => Analytics::consultarStock($ctx, $args),
+                'disponibilidad' => Analytics::disponibilidad($ctx, $args),
                 'productos_agotados' => Analytics::sinStock($ctx, $args),
                 'consultar_inventario' => self::consultarInventario($args, $ctx),
                 'proyectar_ventas' => self::proyectarVentas($args, $ctx),

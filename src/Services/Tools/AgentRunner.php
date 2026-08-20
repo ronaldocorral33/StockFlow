@@ -224,6 +224,7 @@ class AgentRunner
 
             case 'ranking_ventas':
             case 'consultar_stock':
+            case 'disponibilidad':
                 // La etiqueta de la dimensión se usa como encabezado de la columna, para
                 // que la tabla diga "Producto" o "Talla" y no "valor".
                 if (!empty($result['resultados'])) {

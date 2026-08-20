@@ -259,6 +259,22 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
   border-radius:var(--radius-sm); padding:11px 15px; margin-bottom:12px; font-size:.85rem; font-weight:600; color:var(--royal-deep);
 }
 .bulkbar.show{display:flex}
+/* Markdown dentro de una burbuja del chat. Sin colores ni radios nuevos. */
+.chat-bubble p{margin:0 0 7px}
+.chat-bubble p:last-child{margin-bottom:0}
+.chat-bubble .mdh{font-weight:800; font-size:.92rem; margin:10px 0 5px}
+.chat-bubble .mdlist{margin:0 0 8px 1.15em; padding:0}
+.chat-bubble .mdlist li{margin-bottom:3px}
+.chat-bubble .mdcode{font-family:"Cascadia Mono",Consolas,monospace; font-size:.82em; background:var(--surface-2); padding:1px 5px; border-radius:5px}
+.chat-bubble .mdpre{font-family:"Cascadia Mono",Consolas,monospace; font-size:.78rem; background:var(--surface-2); border-radius:var(--radius-sm); padding:9px 11px; overflow-x:auto; margin:8px 0; white-space:pre-wrap}
+/* La tabla se desborda con scroll propio: una tabla ancha no debe estirar la burbuja. */
+.mdtable{overflow-x:auto; margin:9px 0; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--paper)}
+.mdtable table{width:100%; border-collapse:collapse; font-size:.82rem; font-variant-numeric:tabular-nums}
+.mdtable th{background:var(--surface); padding:7px 10px; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft); border-bottom:1px solid var(--line); white-space:nowrap}
+.mdtable td{padding:6px 10px; border-top:1px solid var(--line-soft); white-space:nowrap}
+/* En la burbuja del usuario (fondo azul) la tabla necesita su propio contraste. */
+.chat-bubble.user .mdtable{background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.25)}
+.chat-bubble.user .mdcode{background:rgba(255,255,255,.18)}
 .chat-head{display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap}
 .chat-log{padding:18px; min-height:360px; max-height:60vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px}
 .chat-inputrow{display:flex; gap:9px; margin-top:12px}
