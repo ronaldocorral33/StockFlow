@@ -101,7 +101,27 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
             <div class="field"><label>Tipo de cambio <span class="hint">(si capturas en USD)</span></label><input id="p-tc" type="number" step="0.1" value="18" oninput="Entradas.calc()"></div>
           </div>
         </div>
+        <!-- NIVEL 2: lo que vale igual para todas las piezas del lote. Se escribe UNA vez. -->
+        <div class="cap-head">
+          <div class="chat-head">
+            <div>
+              <h3><?= icon('copy', 16) ?> Datos iguales para todo el lote</h3>
+              <p style="margin-bottom:0">Marca los campos que se repiten en todas las piezas y captúralos una sola vez. Los demás los llenas por unidad abajo. <b><span id="ent-compartidos-n">0</span></b> campo(s) compartido(s).</p>
+            </div>
+          </div>
+          <div id="ent-compartidos" class="shgrid"></div>
+        </div>
+
+        <!-- NIVEL 3: solo lo que cambia entre piezas. -->
         <div class="itemwrap">
+          <div class="iw-head">
+            <div class="entgen">
+              <label>Cantidad de piezas</label>
+              <input id="ent-cantidad" type="number" min="1" max="500" value="20" style="width:88px">
+              <button class="btn primary sm" onclick="Entradas.generar()"><?= icon('plus', 14) ?> Generar unidades</button>
+              <button class="btn ghost sm" onclick="Entradas.abrirPegar()"><?= icon('copy', 14) ?> Pegar desde Excel</button>
+            </div>
+          </div>
           <div class="iw-scroll">
             <table class="itemtable">
               <thead><tr id="entrada-head"></tr></thead>
@@ -109,18 +129,18 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
             </table>
           </div>
           <div class="iw-foot">
-            <button class="btn ghost sm" onclick="Entradas.addRow()"><?= icon('plus', 14) ?> Agregar producto</button>
+            <button class="btn ghost sm" onclick="Entradas.addRow()"><?= icon('plus', 14) ?> Agregar una</button>
             <button class="btn ghost sm" onclick="Entradas.addRow(5)"><?= icon('plus', 14) ?> Agregar 5</button>
             <span class="muted" id="envio-reparto"></span>
           </div>
         </div>
         <div class="summary" id="entrada-summary"></div>
         <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn ghost" onclick="Entradas.previsualizar()"><?= icon('eye', 15) ?> Vista previa</button>
           <button class="btn in" onclick="Entradas.guardar()"><?= icon('check', 15) ?> Guardar pedido en inventario</button>
           <button class="btn ghost" onclick="Entradas.reset()">Limpiar</button>
         </div>
       </section>
-
       <section id="salidas" class="view">
         <div class="kpis" id="kpis-sal"></div>
         <div class="toolbar">
@@ -226,6 +246,35 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
   </div>
 </div>
 
+<div class="modal-bg" id="paste-bg">
+  <div class="modal" style="max-width:600px">
+    <h2><span><?= icon('copy', 17) ?> Pegar desde Excel o Google Sheets</span><span class="x" onclick="Entradas.cerrarPegar()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <p class="muted" style="font-size:.82rem; margin-bottom:8px">Copia las celdas en tu hoja de cálculo y pégalas aquí. Si la primera fila trae los nombres de los campos, se reconocen solos.</p>
+      <p class="muted" style="font-size:.78rem; margin-bottom:10px" id="paste-hint"></p>
+      <textarea id="paste-area" rows="10" style="width:100%;font-family:Consolas,monospace;font-size:.82rem;border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px" placeholder="Talla&#9;Precio&#10;S&#9;899&#10;M&#9;899&#10;L&#9;949"></textarea>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="Entradas.cerrarPegar()">Cancelar</button>
+      <button class="btn primary" onclick="Entradas.aplicarPegado()">Pegar unidades</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="prev-bg">
+  <div class="modal" style="max-width:760px">
+    <h2><span><?= icon('eye', 17) ?> Vista previa: <span id="prev-count">0</span> pieza(s)</span><span class="x" onclick="Entradas.cerrarPrev()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <p class="muted" style="font-size:.82rem; margin-bottom:12px">Así quedará cada pieza, ya combinando los datos compartidos con los de cada unidad.</p>
+      <div id="prev-problemas"></div>
+      <div id="prev-tabla"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="Entradas.cerrarPrev()">Seguir editando</button>
+      <button class="btn in" onclick="Entradas.guardar()"><?= icon('check', 15) ?> Guardar pedido</button>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="filt-bg">
   <div class="modal" style="max-width:520px">
     <h2><span><?= icon('filter', 17) ?> Filtrar inventario</span><span class="x" onclick="Inventario.closeFilters()"><?= icon('x', 18) ?></span></h2>

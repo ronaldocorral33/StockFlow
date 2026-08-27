@@ -28,37 +28,77 @@ class ImportExportService
         'sale_date' => ['Fecha de Venta', 'Fecha de venta'],
     ];
 
-    /** Filas aplanadas para exportar: columnas fijas legibles + una columna por atributo del negocio. */
-    public static function exportRows(int $businessId): array
-    {
-        $attrDefs = AttributeDefinition::listForBusiness($businessId);
-        $items = InventoryItem::list($businessId, ['sort' => 'created_at', 'dir' => 'asc']);
+    /**
+     * Filas para exportar, con las columnas que el negocio configuró.
+     *
+     * Antes esta función escribía a mano una lista de 14 columnas, así que exportaba
+     * "Categoría" aunque el negocio no la usara y no había forma de sacar un campo
+     * personalizado nuevo sin tocar código.
+     *
+     * Ahora las columnas salen del REGISTRO (contexto "export") y llevan la etiqueta
+     * que el dueño eligió. La columna ID se incluye aparte, a petición: es lo que
+     * permite reimportar el archivo y que la sincronización empareje exacto.
+     *
+     * @param array|null $fieldKeys Selección puntual para esta exportación. null = la
+     *                              configuración guardada del contexto "export".
+     * @param string     $scope     'all' | 'stock' | 'sold'
+     */
+    public static function exportRows(
+        int $businessId,
+        ?array $fieldKeys = null,
+        string $scope = 'all',
+        bool $includeId = true
+    ): array {
+        $campos = AttributeDefinition::forContext($businessId, 'export');
 
-        return array_map(function ($item) use ($attrDefs) {
-            $row = [
-                'ID' => $item['id'],
-                'Pedido' => $item['order_number'],
-                'Proveedor' => $item['supplier_name'],
-                'Fecha de compra' => $item['purchase_date'],
-                'Fecha de llegada' => $item['arrival_date'],
-                'Fecha de venta' => $item['sale_date'],
-                'Nombre' => $item['name'],
-                'Variante' => $item['variant_label'],
-                'Categoría' => $item['category'],
-                'Subcategoría' => $item['subcategory'],
-            ];
-            foreach ($attrDefs as $def) {
-                $row[$def['label']] = $item['attributes'][$def['field_key']] ?? null;
+        if ($fieldKeys !== null) {
+            // Selección puntual: se respeta el orden en que el usuario la mandó, pero
+            // cada clave se valida contra el registro. Una clave inventada se ignora.
+            $porClave = [];
+            foreach (AttributeDefinition::listRegistry($businessId) as $c) {
+                $porClave[$c['field_key']] = $c;
             }
-            $row['Costo (MXN)'] = $item['cost'];
-            $row['Envío (MXN)'] = $item['shipping_cost'];
-            $row['Costo total (MXN)'] = $item['total_cost'];
-            $row['Venta (MXN)'] = $item['sale_price'];
-            $row['Ganancia (MXN)'] = $item['profit'];
+            $campos = [];
+            foreach ($fieldKeys as $k) {
+                if (isset($porClave[$k])) { $campos[] = $porClave[$k]; }
+            }
+        }
+
+        $filtros = [];
+        if ($scope === 'stock' || $scope === 'sold') {
+            $filtros['status'] = $scope;
+        }
+        $items = InventoryItem::list($businessId, $filtros + ['sort' => 'created_at', 'dir' => 'asc']);
+
+        return array_map(function ($item) use ($campos, $includeId) {
+            $row = [];
+            if ($includeId) {
+                // Primera columna a propósito: es la que hace exacta la reimportación.
+                $row['ID'] = $item['id'];
+            }
+            foreach ($campos as $c) {
+                $row[$c['label']] = self::exportValue($item, $c);
+            }
             return $row;
         }, $items);
     }
 
+    /** Valor de un campo del registro para una pieza, ya listo para la celda de Excel. */
+    private static function exportValue(array $item, array $campo): mixed
+    {
+        if ($campo['storage'] === AttributeDefinition::STORAGE_JSON) {
+            $attrs = $item['attributes'];
+            if ($attrs instanceof \stdClass) { $attrs = (array)$attrs; }
+            return $attrs[$campo['field_key']] ?? null;
+        }
+        // Dos campos canónicos no son columnas de inventory_items sino valores traídos
+        // por JOIN: su nombre en la fila decorada es distinto al del registro.
+        return match ($campo['field_key']) {
+            'supplier' => $item['supplier_name'] ?? null,
+            'order_number' => $item['order_number'] ?? null,
+            default => $item[$campo['field_key']] ?? null,
+        };
+    }
     /**
      * Mapea una fila cruda de Excel (claves = encabezados) a los datos que espera InventoryItem::create().
      * Prioridad: primero intenta hacer match con la ETIQUETA de un atributo definido por el usuario,

@@ -57,23 +57,43 @@ const Fields = (() => {
     'sale_price', 'total_cost', 'profit', 'purchase_date', 'arrival_date', 'sale_date',
   ]);
 
-  async function load(force = false) {
+  async function load(force = false, includeArchived = false) {
     if (loaded && !force) return registry;
-    const res = await Api.get('attributes.php?scope=registry');
+    const res = await Api.get('attributes.php?scope=registry' + (includeArchived ? '&archived=1' : ''));
     registry = res.fields || [];
+    if (res.contexts) CONTEXTS = res.contexts;
+    if (res.types) types = res.types;
+    principal = res.principal || null;
     loaded = true;
     return registry;
   }
 
-  /** Qué columnas del registro gobiernan cada tabla. Espejo de TABLE_CONFIG en PHP. */
-  const TABLE_CONFIG = {
-    inventory: { visible: 'show_in_table', order: 'sort_order' },
-    sales: { visible: 'visible_in_sales', order: 'sort_order_sales' },
+  /**
+   * Qué columnas del registro gobiernan cada pantalla.
+   *
+   * Llega del servidor (AttributeDefinition::CONTEXTS) para que exista UNA sola
+   * definición. Se conserva una copia local como respaldo si el registro aún no cargó,
+   * pero el servidor manda: si mañana se agrega una pantalla, este archivo no cambia.
+   */
+  let CONTEXTS = {
+    entries:   { visible: 'visible_in_entries', order: 'sort_order_entries' },
+    inventory: { visible: 'show_in_table',      order: 'sort_order' },
+    sales:     { visible: 'visible_in_sales',   order: 'sort_order_sales' },
+    export:    { visible: 'visible_in_export',  order: 'sort_order_export' },
   };
+  let principal = null;
+  let types = ['text', 'number', 'date', 'select', 'boolean'];
 
   function cfgFor(table) {
-    return TABLE_CONFIG[table] || TABLE_CONFIG.inventory;
+    return CONTEXTS[table] || CONTEXTS.inventory;
   }
+
+  /** El campo designado como identificador principal del producto, o null. */
+  function principalField() { return principal; }
+  function contexts() { return CONTEXTS; }
+  function fieldTypes() { return types; }
+  function byKey(key) { return registry.find(f => f.field_key === key) || null; }
+  function byId(id) { return registry.find(f => f.id === id) || null; }
 
   function flagFor(table) {
     return cfgFor(table).visible;
@@ -88,7 +108,7 @@ const Fields = (() => {
    */
   function columns(table) {
     const cfg = cfgFor(table);
-    const visibles = registry.filter(f => f[cfg.visible]);
+    const visibles = registry.filter(f => f[cfg.visible] && !f.archived);
     const canon = visibles.filter(f => f.storage === 'column');
     const custom = visibles.filter(f => f.storage === 'json');
     // Cada tabla ordena por SU columna de orden: Salidas empieza por la fecha de
@@ -134,6 +154,42 @@ const Fields = (() => {
     return columns(table).some(f => f.field_key === 'variant_label');
   }
 
+  /**
+   * Dibuja un control de captura para un campo, sea canónico o personalizado.
+   *
+   * Es lo que permite que Entradas deje de tener inputs escritos a mano: el tipo del
+   * campo decide el control, y las opciones de una lista salen de su configuración.
+   */
+  function input(field, value, extraAttrs = '') {
+    const v = value == null ? '' : String(value);
+    const base = `data-fk="${field.field_key}" ${extraAttrs}`;
+    switch (field.field_type) {
+      case 'select': {
+        const opts = (field.options || []).map(o =>
+          `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
+        return `<select ${base}><option value="">—</option>${opts}</select>`;
+      }
+      case 'number':
+        return `<input type="number" step="0.01" ${base} value="${esc(v)}">`;
+      case 'date':
+        return `<input type="date" ${base} value="${esc(v)}">`;
+      case 'boolean':
+        return `<select ${base}><option value="">—</option>
+          <option value="1" ${v === '1' ? 'selected' : ''}>Sí</option>
+          <option value="0" ${v === '0' ? 'selected' : ''}>No</option></select>`;
+      default:
+        return `<input type="text" ${base} value="${esc(v)}" ${field.filter_values && field.filter_values.length ? `list="dl-${field.field_key}"` : ''}>`;
+    }
+  }
+
+  /** Listas de sugerencias con los valores ya usados: evita escribir variantes del mismo dato. */
+  function datalists() {
+    return registry
+      .filter(f => f.field_type === 'text' && f.filter_values && f.filter_values.length)
+      .map(f => `<datalist id="dl-${f.field_key}">` +
+        f.filter_values.map(v => `<option value="${esc(v.valor)}">`).join('') + '</datalist>')
+      .join('');
+  }
   // ---------------------------------------------------------------
   // Selector de columnas
   // ---------------------------------------------------------------
@@ -155,7 +211,8 @@ const Fields = (() => {
 
   function renderPicker() {
     const flag = flagFor(pickerTable);
-    const titulo = pickerTable === 'sales' ? 'Salidas' : 'Inventario';
+    const TITULOS = { entries: 'Entradas', inventory: 'Inventario', sales: 'Salidas', export: 'Exportación' };
+    const titulo = TITULOS[pickerTable] || 'Inventario';
     document.getElementById('cols-title').textContent = 'Columnas de ' + titulo;
 
     const grupo = (etiqueta, campos) => {
@@ -179,8 +236,8 @@ const Fields = (() => {
         }).join('') + '</div>';
     };
 
-    const canon = registry.filter(f => f.storage === 'column');
-    const custom = registry.filter(f => f.storage === 'json');
+    const canon = registry.filter(f => f.storage === 'column' && !f.archived);
+    const custom = registry.filter(f => f.storage === 'json' && !f.archived);
 
     document.getElementById('cols-body').innerHTML =
       grupo('Campos base', canon) +
@@ -199,14 +256,20 @@ const Fields = (() => {
     campo[flag] = visible;   // optimista: la tabla se redibuja de inmediato
 
     try {
-      await Api.post('attributes.php?action=visibility', { id, table: pickerTable, visible });
+      await Api.post('attributes.php?action=visibility', { id, context: pickerTable, visible });
       if (pickerOnChange) pickerOnChange();
     } catch (e) {
       campo[flag] = !visible;   // se revierte si el servidor lo rechazó
       renderPicker();
-      toast('No se pudo guardar el cambio');
+      // El servidor explica la razón (por ejemplo, ocultar el campo principal): se
+      // muestra tal cual en vez de un mensaje genérico.
+      toast(e && e.message ? e.message : 'No se pudo guardar el cambio');
     }
   }
 
-  return { load, all, columns, cell, headerCell, variantIsColumn, openPicker, closePicker, toggle };
+  return {
+    load, all, columns, cell, headerCell, variantIsColumn,
+    openPicker, closePicker, toggle,
+    principalField, contexts, fieldTypes, byKey, byId, input, datalists,
+  };
 })();

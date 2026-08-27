@@ -182,6 +182,21 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
 .cap-head p{font-size:.83rem; color:var(--ink-soft); margin-bottom:12px}
 .cap-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px}
 .cap-grid .field{margin:0}
+/* Captura por lote: campos compartidos y controles de generación. */
+.shgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px}
+.shfield{border:1px solid var(--line); border-radius:var(--radius-sm); padding:9px 11px; background:var(--paper); transition:border-color .16s var(--ease), background .16s var(--ease)}
+.shfield.on{border-color:var(--royal); background:var(--royal-soft)}
+.shchk{display:flex; align-items:center; gap:7px; cursor:pointer; font-size:.82rem; font-weight:600; margin-bottom:6px}
+.shchk input{accent-color:var(--royal); flex:none; width:14px; height:14px}
+.shval input, .shval select{font:inherit; font-size:.84rem; width:100%; border:1px solid var(--line); border-radius:7px; padding:6px 8px; background:var(--paper)}
+.shval input:focus, .shval select:focus{outline:none; border-color:var(--royal); box-shadow:0 0 0 3px var(--royal-ring)}
+.shval .muted{font-size:.76rem}
+.iw-head{padding:11px 14px; border-bottom:1px solid var(--line); background:var(--surface)}
+.entgen{display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:.83rem}
+.entgen label{font-weight:600; color:var(--ink-soft)}
+.entgen input{font:inherit; font-size:.85rem; border:1px solid var(--line); border-radius:7px; padding:6px 9px; background:var(--paper)}
+.colact{display:inline-flex; cursor:pointer; opacity:.45; margin-left:3px; vertical-align:middle}
+.colact:hover{opacity:1; color:var(--royal)}
 .itemtable{width:100%; border-collapse:collapse; font-size:.82rem; min-width:920px}
 .itemtable th{background:var(--surface); color:var(--ink-soft); padding:9px 10px; text-align:left; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; border-bottom:1px solid var(--line)}
 .itemtable td{padding:6px 8px; border-top:1px solid var(--line-soft); vertical-align:middle}

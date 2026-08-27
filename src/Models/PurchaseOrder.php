@@ -25,6 +25,36 @@ class PurchaseOrder
     }
 
     /**
+     * Reparte el envío del pedido entre las piezas SIN perder ni inventar centavos.
+     *
+     * El reparto anterior era `round(total / n)` para todas las piezas: con $1,000
+     * entre 3 daba $333 a cada una y el pedido "costaba" $999. Un peso por pedido
+     * parece poco, pero es un error de contabilidad — la suma de los costos por pieza
+     * debe ser exactamente lo que se pagó.
+     *
+     * Se trabaja en CENTAVOS enteros para no arrastrar el error de los flotantes, y el
+     * residuo se reparte de a un centavo entre las primeras piezas. Así todas quedan
+     * a lo sumo a un centavo de distancia y la suma cuadra exacto.
+     *
+     * @return float[] monto por pieza, en el mismo orden que $items
+     */
+    private static function splitShipping(float $totalMxn, int $count): array
+    {
+        if ($count <= 0) {
+            return [];
+        }
+        $centavos = (int)round($totalMxn * 100);
+        $base = intdiv($centavos, $count);
+        $resto = $centavos - ($base * $count);
+
+        $out = [];
+        for ($i = 0; $i < $count; $i++) {
+            // Las primeras $resto piezas llevan un centavo extra.
+            $out[] = ($base + ($i < $resto ? 1 : 0)) / 100;
+        }
+        return $out;
+    }
+    /**
      * Devuelve el id del pedido con ese número, creándolo si no existe.
      *
      * Existe para la importación: en un Excel el pedido viene como un NÚMERO ("#12"),
@@ -95,8 +125,15 @@ class PurchaseOrder
         $factor = $currency === 'USD' ? $exchangeRate : 1.0;
         $shippingTotalOriginal = (float)($header['shipping_total'] ?? 0);
         $shippingTotalMxn = PricingService::toMxn($shippingTotalOriginal, $currency, $exchangeRate);
+        // Las filas sin nombre se descartan más abajo. Si el envío se dividiera entre
+        // TODAS las filas recibidas, una fila vacía se llevaría su parte y el reparto
+        // no sumaría el envío del pedido.
+        $items = array_values(array_filter(
+            $items,
+            fn($i) => trim((string)($i['name'] ?? '')) !== ''
+        ));
         $count = count($items);
-        $shippingPerUnit = $count > 0 ? round($shippingTotalMxn / $count) : 0;
+        $shippingPerUnit = self::splitShipping($shippingTotalMxn, $count);
 
         $pdo = Database::connection();
         $pdo->beginTransaction();
@@ -127,7 +164,7 @@ class PurchaseOrder
             );
 
             $itemIds = [];
-            foreach ($items as $item) {
+            foreach ($items as $idx => $item) {
                 $name = trim((string)($item['name'] ?? ''));
                 if ($name === '') {
                     continue;
@@ -139,7 +176,7 @@ class PurchaseOrder
                 $itemStmt->execute([
                     $businessId, $actorUserId, $poId, $supplierId,
                     $name, $item['variant_label'] ?? null, $item['category'] ?? null, $item['subcategory'] ?? null,
-                    $attributes, $cost, $shippingPerUnit, $salePrice,
+                    $attributes, $cost, $shippingPerUnit[$idx] ?? 0, $salePrice,
                     ($header['purchase_date'] ?? null) ?: null, ($header['arrival_date'] ?? null) ?: null,
                 ]);
                 $itemIds[] = (int)$pdo->lastInsertId();

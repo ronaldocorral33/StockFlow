@@ -20,6 +20,10 @@ class AttributeDefinition
     public const ROLE_PRODUCT_NAME = 'product_name';
     public const ROLES = [self::ROLE_PRODUCT_NAME];
 
+    /** Tipos que un usuario puede elegir. 'computed' queda fuera a propósito: los
+     *  campos derivados los calcula la base, no se capturan. */
+    public const USER_TYPES = ['text', 'number', 'date', 'select', 'boolean'];
+
     /**
      * Campos personalizados del negocio (los que viven en el JSON).
      *
@@ -37,9 +41,9 @@ class AttributeDefinition
     }
 
     /** Registro COMPLETO: canónicos + personalizados. Lo consumirán las fases 3B y 3C. */
-    public static function listRegistry(int $businessId): array
+    public static function listRegistry(int $businessId, bool $includeArchived = false): array
     {
-        return self::query($businessId, null);
+        return self::query($businessId, null, $includeArchived);
     }
 
     /** Solo los campos canónicos. */
@@ -48,13 +52,18 @@ class AttributeDefinition
         return self::query($businessId, self::STORAGE_COLUMN);
     }
 
-    private static function query(int $businessId, ?string $storage): array
+    private static function query(int $businessId, ?string $storage, bool $includeArchived = false): array
     {
         $sql = 'SELECT * FROM attribute_definitions WHERE business_id = ?';
         $params = [$businessId];
         if ($storage !== null) {
             $sql .= ' AND storage = ?';
             $params[] = $storage;
+        }
+        // Un campo archivado sigue existiendo y conserva los valores guardados, pero
+        // desaparece de todas las pantallas hasta que se reactive.
+        if (!$includeArchived) {
+            $sql .= ' AND archived_at IS NULL';
         }
         $sql .= ' ORDER BY sort_order ASC, id ASC';
 
@@ -75,6 +84,13 @@ class AttributeDefinition
         $row['filterable'] = (bool)($row['filterable'] ?? 1);
         $row['analytics_enabled'] = (bool)($row['analytics_enabled'] ?? 1);
         $row['is_canonical'] = ($row['storage'] ?? self::STORAGE_JSON) === self::STORAGE_COLUMN;
+        $row['visible_in_entries'] = (bool)($row['visible_in_entries'] ?? 0);
+        $row['visible_in_export'] = (bool)($row['visible_in_export'] ?? 0);
+        $row['sort_order_entries'] = (int)($row['sort_order_entries'] ?? 0);
+        $row['sort_order_export'] = (int)($row['sort_order_export'] ?? 0);
+        $row['is_editable'] = (bool)($row['is_editable'] ?? 1);
+        $row['archived'] = !empty($row['archived_at']);
+        $row['is_principal'] = ($row['semantic_role'] ?? null) === self::ROLE_PRODUCT_NAME;
         return $row;
     }
 
@@ -253,23 +269,31 @@ class AttributeDefinition
     ];
 
     /**
-     * Las dos tablas con presentación configurable, y las columnas que la guardan.
+     * Las CUATRO pantallas con presentación configurable, y las columnas que la guardan.
      *
-     * Cada tabla tiene su propia visibilidad Y su propio orden: responden preguntas
-     * distintas. Inventario es un catálogo y empieza por el producto; Salidas es un
-     * registro cronológico y empieza por la fecha.
+     * Cada contexto tiene su propia visibilidad Y su propio orden porque responde una
+     * pregunta distinta: en Entradas importa lo que se captura, en Inventario lo que se
+     * tiene, en Salidas el margen, y en Exportación lo que el usuario quiere llevarse.
+     *
+     * Este arreglo es la ÚNICA lista blanca de nombres de columna que gobiernan
+     * consultas. Ningún nombre de columna llega jamás desde el cliente.
      */
+    public const CONTEXTS = [
+        'entries'   => ['visible' => 'visible_in_entries', 'order' => 'sort_order_entries', 'label' => 'Entradas'],
+        'inventory' => ['visible' => 'show_in_table',      'order' => 'sort_order',         'label' => 'Inventario'],
+        'sales'     => ['visible' => 'visible_in_sales',   'order' => 'sort_order_sales',   'label' => 'Salidas'],
+        'export'    => ['visible' => 'visible_in_export',  'order' => 'sort_order_export',  'label' => 'Exportación'],
+    ];
+
+    /** @deprecated Alias de CONTEXTS para el código anterior a la fase 4. */
     public const TABLE_CONFIG = [
         'inventory' => ['visible' => 'show_in_table', 'order' => 'sort_order'],
         'sales' => ['visible' => 'visible_in_sales', 'order' => 'sort_order_sales'],
     ];
-
-    /** @deprecated Se conserva por compatibilidad; usa TABLE_CONFIG. */
     public const VISIBILITY_COLUMNS = [
         'inventory' => 'show_in_table',
         'sales' => 'visible_in_sales',
     ];
-
     /**
      * Muestra u oculta un campo en una tabla.
      *
@@ -283,17 +307,256 @@ class AttributeDefinition
      */
     public static function setVisibility(int $id, int $businessId, string $table, bool $visible): void
     {
-        if (!isset(self::TABLE_CONFIG[$table])) {
-            throw new \InvalidArgumentException('Tabla no reconocida: ' . $table);
+        if (!isset(self::CONTEXTS[$table])) {
+            throw new \InvalidArgumentException('Pantalla no reconocida: ' . $table);
         }
         // El nombre de columna sale de una lista blanca, nunca del argumento.
-        $col = self::TABLE_CONFIG[$table]['visible'];
+        $col = self::CONTEXTS[$table]['visible'];
+
+        // Ocultar el campo principal dejaría la pantalla sin el identificador del
+        // producto: una tabla de inventario sin saber QUÉ es cada fila.
+        if (!$visible && $table !== 'export') {
+            $p = self::productNameField($businessId);
+            if ($p && (int)$p['id'] === $id) {
+                throw new \InvalidArgumentException(
+                    'No puedes ocultar "' . $p['label'] . '" porque es el campo principal del producto. '
+                    . 'Designa otro campo como principal primero.'
+                );
+            }
+        }
 
         Database::connection()
             ->prepare("UPDATE attribute_definitions SET {$col} = ? WHERE id = ? AND business_id = ?")
             ->execute([$visible ? 1 : 0, $id, $businessId]);
     }
 
+    /**
+     * Campos VISIBLES de una pantalla, ya ordenados.
+     *
+     * Es el método que consumen Entradas, Inventario, Salidas y Exportación. Que las
+     * cuatro pasen por aquí es lo que garantiza una sola fuente de verdad: cambiar la
+     * configuración de un campo se refleja en todas sin tocar código.
+     *
+     * El orden se resuelve por GRUPO —canónicos y luego personalizados— igual que en
+     * las tablas: cada grupo numera su orden por separado.
+     */
+    public static function forContext(int $businessId, string $context): array
+    {
+        if (!isset(self::CONTEXTS[$context])) {
+            throw new \InvalidArgumentException('Pantalla no reconocida: ' . $context);
+        }
+        $cfg = self::CONTEXTS[$context];
+
+        $visibles = array_filter(self::listRegistry($businessId), fn($f) => !empty($f[$cfg['visible']]));
+        $canon = array_filter($visibles, fn($f) => $f['storage'] === self::STORAGE_COLUMN);
+        $custom = array_filter($visibles, fn($f) => $f['storage'] === self::STORAGE_JSON);
+
+        $porOrden = fn($a, $b) => ($a[$cfg['order']] <=> $b[$cfg['order']]) ?: ($a['id'] <=> $b['id']);
+        usort($canon, $porOrden);
+        usort($custom, $porOrden);
+
+        return array_values(array_merge($canon, $custom));
+    }
+
+    /**
+     * Reordena los campos de UNA pantalla.
+     *
+     * El orden es por contexto, así que reordenar Inventario no mueve Salidas. Se
+     * respeta la separación por grupo: los ids que llegan se numeran dentro del suyo.
+     */
+    public static function reorderContext(int $businessId, string $context, array $orderedIds): void
+    {
+        if (!isset(self::CONTEXTS[$context])) {
+            throw new \InvalidArgumentException('Pantalla no reconocida: ' . $context);
+        }
+        $col = self::CONTEXTS[$context]['order'];
+
+        $pdo = Database::connection();
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                "UPDATE attribute_definitions SET {$col} = ? WHERE id = ? AND business_id = ?"
+            );
+            foreach (array_values($orderedIds) as $i => $id) {
+                $stmt->execute([$i + 1, (int)$id, $businessId]);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Archiva un campo PERSONALIZADO.
+     *
+     * Archivar, no borrar: los valores siguen en el JSON de cada pieza y vuelven
+     * intactos al reactivarlo. Borrar el campo dejaría esos valores huérfanos y sin
+     * forma de recuperarlos — el usuario perdería datos sin haberlo pedido.
+     *
+     * Los canónicos no se archivan: su valor vive en una columna del esquema y el
+     * sistema depende de ellos. Para dejar de verlos está la visibilidad por pantalla.
+     */
+    public static function archive(int $id, int $businessId): void
+    {
+        $campo = self::find($id, $businessId);
+        if (!$campo) {
+            throw new \InvalidArgumentException('El campo no existe en este negocio.');
+        }
+        if ($campo['is_canonical']) {
+            throw new \InvalidArgumentException(
+                'Los campos base no se pueden archivar porque el sistema los usa para calcular. '
+                . 'Si no los necesitas a la vista, ocúltalos en cada pantalla.'
+            );
+        }
+        if ($campo['is_principal']) {
+            throw new \InvalidArgumentException(
+                'No puedes archivar el campo principal del producto. Designa otro primero.'
+            );
+        }
+
+        Database::connection()
+            ->prepare('UPDATE attribute_definitions SET archived_at = NOW() WHERE id = ? AND business_id = ?')
+            ->execute([$id, $businessId]);
+    }
+
+    /** Reactiva un campo archivado. Los valores guardados vuelven a verse tal cual. */
+    public static function restore(int $id, int $businessId): void
+    {
+        Database::connection()
+            ->prepare('UPDATE attribute_definitions SET archived_at = NULL WHERE id = ? AND business_id = ?')
+            ->execute([$id, $businessId]);
+    }
+
+    /** Un campo por id, dentro del negocio. Incluye archivados. */
+    public static function find(int $id, int $businessId): ?array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT * FROM attribute_definitions WHERE id = ? AND business_id = ?'
+        );
+        $stmt->execute([$id, $businessId]);
+        $row = $stmt->fetch();
+        return $row ? self::decorate($row) : null;
+    }
+
+    /**
+     * Cuántas piezas tienen valor en este campo.
+     *
+     * Se consulta ANTES de archivar para poder advertir: "23 piezas tienen valor en
+     * Color". Sin ese número la advertencia es genérica y el usuario no puede decidir.
+     */
+    public static function valueCount(int $id, int $businessId): int
+    {
+        $campo = self::find($id, $businessId);
+        if (!$campo) {
+            return 0;
+        }
+        $expr = self::sqlExpressionFor($campo);
+        if ($expr === null) {
+            return 0;
+        }
+        try {
+            $stmt = Database::connection()->prepare(
+                "SELECT COUNT(*) FROM inventory_items i
+                 LEFT JOIN suppliers s ON s.id = i.supplier_id
+                 LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
+                 WHERE i.business_id = ? AND {$expr} IS NOT NULL AND TRIM({$expr}) <> ''"
+            );
+            $stmt->execute([$businessId]);
+            return (int)$stmt->fetchColumn();
+        } catch (\Throwable $e) {
+            error_log('[registry] no se pudo contar valores de ' . $campo['field_key'] . ': ' . $e->getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Designa el campo principal del producto.
+     *
+     * Debe ser editable y estar activo: un campo calculado o archivado no puede
+     * identificar al producto. La unicidad la garantiza assignRole dentro de una
+     * transacción.
+     */
+    public static function setPrincipal(int $id, int $businessId): void
+    {
+        $campo = self::find($id, $businessId);
+        if (!$campo) {
+            throw new \InvalidArgumentException('El campo no existe en este negocio.');
+        }
+        if ($campo['archived']) {
+            throw new \InvalidArgumentException('Un campo archivado no puede ser el principal.');
+        }
+        if (!$campo['is_editable']) {
+            throw new \InvalidArgumentException(
+                'Un campo calculado no puede ser el identificador principal del producto.'
+            );
+        }
+        self::assignRole($id, $businessId, self::ROLE_PRODUCT_NAME);
+    }
+
+    /**
+     * Actualiza la configuración de un campo desde la pantalla "Campos y vistas".
+     *
+     * Solo toca lo que el usuario puede cambiar. Deliberadamente NO acepta storage,
+     * field_key ni semantic_role: la clave interna debe ser estable (los valores del
+     * JSON se guardan bajo ella) y el rol tiene su propio método con validación.
+     */
+    public static function configure(int $id, int $businessId, array $data): void
+    {
+        $campo = self::find($id, $businessId);
+        if (!$campo) {
+            throw new \InvalidArgumentException('El campo no existe en este negocio.');
+        }
+
+        $sets = [];
+        $params = [];
+
+        if (array_key_exists('label', $data)) {
+            $label = trim((string)$data['label']);
+            if ($label === '') {
+                throw new \InvalidArgumentException('La etiqueta no puede quedar vacía.');
+            }
+            $sets[] = 'label = ?';
+            $params[] = $label;
+        }
+
+        // El tipo solo se puede cambiar en campos personalizados: el de un canónico lo
+        // impone la columna real, y el de un calculado no se toca nunca.
+        if (array_key_exists('field_type', $data) && !$campo['is_canonical']) {
+            $tipo = (string)$data['field_type'];
+            if (!in_array($tipo, self::USER_TYPES, true)) {
+                throw new \InvalidArgumentException('Tipo de campo no válido: ' . $tipo);
+            }
+            $sets[] = 'field_type = ?';
+            $params[] = $tipo;
+        }
+
+        if (array_key_exists('options', $data)) {
+            $opts = is_array($data['options'])
+                ? $data['options']
+                : array_map('trim', explode(',', (string)$data['options']));
+            $opts = array_values(array_filter($opts, fn($o) => $o !== ''));
+            $sets[] = 'options = ?';
+            $params[] = $opts ? json_encode($opts, JSON_UNESCAPED_UNICODE) : null;
+        }
+
+        foreach (['is_required', 'filterable', 'analytics_enabled'] as $bandera) {
+            if (array_key_exists($bandera, $data)) {
+                $sets[] = "{$bandera} = ?";
+                $params[] = !empty($data[$bandera]) ? 1 : 0;
+            }
+        }
+
+        if (!$sets) {
+            return;
+        }
+        $params[] = $id;
+        $params[] = $businessId;
+        Database::connection()
+            ->prepare('UPDATE attribute_definitions SET ' . implode(', ', $sets)
+                . ' WHERE id = ? AND business_id = ?')
+            ->execute($params);
+    }
     /**
      * Expresión SQL de un campo del registro.
      *
