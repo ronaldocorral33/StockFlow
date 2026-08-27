@@ -146,13 +146,15 @@ class PurchaseOrder
             $stmt = $pdo->prepare(
                 'INSERT INTO purchase_orders
                  (business_id, user_id, order_number, supplier_id, purchase_date, arrival_date, currency, exchange_rate,
-                  shipping_total_original, shipping_total_mxn, item_count)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                  shipping_total_original, shipping_total_mxn, item_count, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $businessId, $actorUserId, $orderNumber, $supplierId,
                 ($header['purchase_date'] ?? null) ?: null, ($header['arrival_date'] ?? null) ?: null,
                 $currency, $exchangeRate, $shippingTotalOriginal, $shippingTotalMxn, $count,
+                // La columna existía desde el esquema original pero nadie la escribía.
+                ($header['notes'] ?? null) ?: null,
             ]);
             $poId = (int)$pdo->lastInsertId();
 

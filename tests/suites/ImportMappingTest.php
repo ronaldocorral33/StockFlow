@@ -12,8 +12,8 @@ use App\Models\AttributeDefinition as AD;
 use App\Models\InventoryItem;
 use App\Services\ImportExportService as IE;
 
-const IM_BIZ = 941;
-const IM_USER = 841;
+const IM_BIZ = 900941;
+const IM_USER = 900841;
 
 $db = App\Database::connection();
 

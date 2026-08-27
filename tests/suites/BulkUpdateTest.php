@@ -12,8 +12,8 @@
 use App\Models\AttributeDefinition as AD;
 use App\Models\InventoryItem;
 
-const BU_BIZ = 911;
-const BU_USER = 811;
+const BU_BIZ = 900911;
+const BU_USER = 900811;
 
 $db = App\Database::connection();
 

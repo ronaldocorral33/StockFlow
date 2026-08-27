@@ -158,20 +158,20 @@ test('un campo con demasiados valores se omite en vez de recortarse', function (
 test('AISLAMIENTO: los valores de filtro son solo del negocio', function () {
     $db = App\Database::connection();
     $limpiar = function () use ($db) {
-        $db->prepare('DELETE FROM inventory_items WHERE business_id = ?')->execute([913]);
-        $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([913]);
-        $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([913]);
-        $db->prepare('DELETE FROM users WHERE id = ?')->execute([813]);
+        $db->prepare('DELETE FROM inventory_items WHERE business_id = ?')->execute([900913]);
+        $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([900913]);
+        $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900913]);
+        $db->prepare('DELETE FROM users WHERE id = ?')->execute([900813]);
     };
     $limpiar();
     $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-       ->execute([813, 'Aislado F', 'aislado-filtro@test.local', 'x']);
+       ->execute([900813, 'Aislado F', 'aislado-filtro@test.local', 'x']);
     $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
-       ->execute([913, 'Otro negocio', 813]);
-    AD::seedCanonical(913, 813);
+       ->execute([900913, 'Otro negocio', 900813]);
+    AD::seedCanonical(900913, 900813);
     InventoryItem_afCrear($db);
 
-    $valores = AD::filterValues(913);
+    $valores = AD::filterValues(900913);
     // Solo debe ver su propia pieza, no las 738 del negocio 1.
     assertTrue(isset($valores['name']), 'debe tener valores propios');
     assertSame(1, count($valores['name']['values']));
@@ -184,5 +184,5 @@ test('AISLAMIENTO: los valores de filtro son solo del negocio', function () {
 function InventoryItem_afCrear(PDO $db): void
 {
     $db->prepare('INSERT INTO inventory_items (business_id, user_id, name, cost) VALUES (?,?,?,?)')
-       ->execute([913, 813, 'Pieza Aislada', 10]);
+       ->execute([900913, 900813, 'Pieza Aislada', 10]);
 }

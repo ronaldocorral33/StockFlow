@@ -229,16 +229,16 @@ test('reorder no puede desordenar los canónicos', function () {
 test('un negocio NUEVO nace con su registro canónico', function () {
     $db = App\Database::connection();
     $limpiar = function () use ($db) {
-        $db->prepare('DELETE FROM attribute_definitions WHERE business_id IN (SELECT id FROM businesses WHERE owner_user_id = ?)')->execute([808]);
-        $db->prepare('DELETE FROM business_users WHERE user_id = ?')->execute([808]);
-        $db->prepare('DELETE FROM businesses WHERE owner_user_id = ?')->execute([808]);
-        $db->prepare('DELETE FROM users WHERE id = ?')->execute([808]);
+        $db->prepare('DELETE FROM attribute_definitions WHERE business_id IN (SELECT id FROM businesses WHERE owner_user_id = ?)')->execute([900808]);
+        $db->prepare('DELETE FROM business_users WHERE user_id = ?')->execute([900808]);
+        $db->prepare('DELETE FROM businesses WHERE owner_user_id = ?')->execute([900808]);
+        $db->prepare('DELETE FROM users WHERE id = ?')->execute([900808]);
     };
     $limpiar();
     $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-       ->execute([808, 'Nuevo', 'nuevo-registro@test.local', 'x']);
+       ->execute([900808, 'Nuevo', 'nuevo-registro@test.local', 'x']);
 
-    $bid = App\Models\Business::createWithOwner('Negocio Recién Creado', 808);
+    $bid = App\Models\Business::createWithOwner('Negocio Recién Creado', 900808);
 
     $canon = AD::listCanonical($bid);
     assertSame(14, count($canon), 'debe nacer con los 14 canónicos');

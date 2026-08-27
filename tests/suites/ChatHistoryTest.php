@@ -62,15 +62,15 @@ $db->beginTransaction();
 // foráneas: la base NO deja escribir un mensaje de un usuario que no existe.
 // Eso ya es una prueba en sí — la integridad referencial no es opcional.
 $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-   ->execute([801, 'Prueba A', 'prueba-a@test.local', 'x']);
+   ->execute([900801, 'Prueba A', 'prueba-a@test.local', 'x']);
 $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-   ->execute([802, 'Prueba B', 'prueba-b@test.local', 'x']);
+   ->execute([900802, 'Prueba B', 'prueba-b@test.local', 'x']);
 $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-   ->execute([803, 'Prueba C', 'prueba-c@test.local', 'x']);
+   ->execute([900803, 'Prueba C', 'prueba-c@test.local', 'x']);
 $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
-   ->execute([901, 'Negocio A', 801]);
+   ->execute([900901, 'Negocio A', 900801]);
 $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
-   ->execute([902, 'Negocio B', 802]);
+   ->execute([900902, 'Negocio B', 900802]);
 
 // Dos hilos de dos dueños distintos, con el MISMO id de conversación a propósito:
 // así se prueba que el filtro por negocio/usuario es lo que separa, no el id.
@@ -81,13 +81,13 @@ $ins = $db->prepare(
     'INSERT INTO chat_messages (business_id, user_id, conversation_id, question, answer)
      VALUES (?, ?, ?, ?, ?)'
 );
-$ins->execute([901, 801, $SHARED_ID, 'primera del negocio A', 'respuesta A1']);
-$ins->execute([901, 801, $SHARED_ID, 'segunda del negocio A', 'respuesta A2']);
-$ins->execute([902, 802, $SHARED_ID, 'pregunta del negocio B', 'respuesta B1']);
-$ins->execute([901, 801, $OTHER_ID,  'otro hilo del mismo dueño', 'respuesta otra']);
+$ins->execute([900901, 900801, $SHARED_ID, 'primera del negocio A', 'respuesta A1']);
+$ins->execute([900901, 900801, $SHARED_ID, 'segunda del negocio A', 'respuesta A2']);
+$ins->execute([900902, 900802, $SHARED_ID, 'pregunta del negocio B', 'respuesta B1']);
+$ins->execute([900901, 900801, $OTHER_ID,  'otro hilo del mismo dueño', 'respuesta otra']);
 
 test('trae el hilo del dueño, en orden cronológico y como pares user/assistant', function () use ($SHARED_ID) {
-    $m = ChatHistory::messagesFor(901, 801, $SHARED_ID);
+    $m = ChatHistory::messagesFor(900901, 900801, $SHARED_ID);
     assertSame(4, count($m), 'dos intercambios = cuatro mensajes');
     assertSame('user', $m[0]['role']);
     assertSame('primera del negocio A', $m[0]['content']);
@@ -99,25 +99,25 @@ test('trae el hilo del dueño, en orden cronológico y como pares user/assistant
 test('AISLAMIENTO: el mismo conversation_id no cruza de negocio', function () use ($SHARED_ID) {
     // El negocio B usó el MISMO id. Si el filtro fuera solo por conversation_id,
     // aquí se filtrarían las preguntas del negocio A.
-    $m = ChatHistory::messagesFor(902, 802, $SHARED_ID);
+    $m = ChatHistory::messagesFor(900902, 900802, $SHARED_ID);
     assertSame(2, count($m));
     assertSame('pregunta del negocio B', $m[0]['content']);
 });
 
 test('AISLAMIENTO: adivinar el id de otro usuario no trae nada', function () use ($SHARED_ID) {
-    // Usuario 803 no tiene nada en ese hilo, aunque el id sea correcto.
-    assertSame([], ChatHistory::messagesFor(901, 803, $SHARED_ID));
+    // El tercer usuario no tiene nada en ese hilo, aunque el id sea correcto.
+    assertSame([], ChatHistory::messagesFor(900901, 900803, $SHARED_ID));
 });
 
 test('hilos distintos del mismo dueño no se mezclan', function () use ($OTHER_ID) {
-    $m = ChatHistory::messagesFor(901, 801, $OTHER_ID);
+    $m = ChatHistory::messagesFor(900901, 900801, $OTHER_ID);
     assertSame(2, count($m));
     assertSame('otro hilo del mismo dueño', $m[0]['content']);
 });
 
 test('un id con formato inválido ni siquiera consulta: devuelve vacío', function () {
-    assertSame([], ChatHistory::messagesFor(901, 801, 'no-es-uuid'));
-    assertSame([], ChatHistory::messagesFor(901, 801, null));
+    assertSame([], ChatHistory::messagesFor(900901, 900801, 'no-es-uuid'));
+    assertSame([], ChatHistory::messagesFor(900901, 900801, null));
 });
 
 test('respeta MAX_EXCHANGES: no crece sin límite', function () use ($db) {
@@ -127,9 +127,9 @@ test('respeta MAX_EXCHANGES: no crece sin límite', function () use ($db) {
          VALUES (?, ?, ?, ?, ?)'
     );
     for ($i = 1; $i <= 10; $i++) {
-        $ins->execute([901, 801, $id, "pregunta {$i}", "respuesta {$i}"]);
+        $ins->execute([900901, 900801, $id, "pregunta {$i}", "respuesta {$i}"]);
     }
-    $m = ChatHistory::messagesFor(901, 801, $id);
+    $m = ChatHistory::messagesFor(900901, 900801, $id);
     assertSame(ChatHistory::MAX_EXCHANGES * 2, count($m), 'solo los últimos intercambios');
     assertSame('pregunta 8', $m[0]['content'], 'debe quedarse con los MÁS RECIENTES');
     assertSame('respuesta 10', $m[5]['content']);
@@ -138,10 +138,10 @@ test('respeta MAX_EXCHANGES: no crece sin límite', function () use ($db) {
 test('ignora filas sin respuesta (preguntas que fallaron a medias)', function () use ($db) {
     $id = '11111111-2222-4333-8444-555555555555';
     $db->prepare('INSERT INTO chat_messages (business_id, user_id, conversation_id, question, answer) VALUES (?,?,?,?,?)')
-       ->execute([901, 801, $id, 'ésta sí respondió', 'ok']);
+       ->execute([900901, 900801, $id, 'ésta sí respondió', 'ok']);
     $db->prepare('INSERT INTO chat_messages (business_id, user_id, conversation_id, question, answer) VALUES (?,?,?,?,NULL)')
-       ->execute([901, 801, $id, 'ésta quedó sin respuesta']);
-    $m = ChatHistory::messagesFor(901, 801, $id);
+       ->execute([900901, 900801, $id, 'ésta quedó sin respuesta']);
+    $m = ChatHistory::messagesFor(900901, 900801, $id);
     assertSame(2, count($m), 'un intercambio completo, no dos');
     assertSame('ésta sí respondió', $m[0]['content']);
 });

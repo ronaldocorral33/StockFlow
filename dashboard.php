@@ -99,41 +99,28 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
             <div class="field"><label>Moneda en que capturo</label><select id="p-moneda" onchange="Entradas.calc()"><option value="MXN">Pesos (MXN)</option><option value="USD">Dólares (USD)</option></select></div>
             <div class="field"><label>Envío total del pedido</label><input id="p-envio" type="number" step="0.01" placeholder="0" oninput="Entradas.calc()"></div>
             <div class="field"><label>Tipo de cambio <span class="hint">(si capturas en USD)</span></label><input id="p-tc" type="number" step="0.1" value="18" oninput="Entradas.calc()"></div>
+            <div class="field"><label>Notas del pedido <span class="hint">(opcional)</span></label><input id="p-notas" placeholder="Ej. llegó incompleto"></div>
           </div>
         </div>
-        <!-- NIVEL 2: lo que vale igual para todas las piezas del lote. Se escribe UNA vez. -->
+        <!-- NIVEL 2 y 3: grupos de productos, cada uno con sus compartidos y sus unidades. -->
         <div class="cap-head">
           <div class="chat-head">
             <div>
-              <h3><?= icon('copy', 16) ?> Datos iguales para todo el lote</h3>
-              <p style="margin-bottom:0">Marca los campos que se repiten en todas las piezas y captúralos una sola vez. Los demás los llenas por unidad abajo. <b><span id="ent-compartidos-n">0</span></b> campo(s) compartido(s).</p>
+              <h3><?= icon('copy', 16) ?> Productos de este pedido</h3>
+              <p style="margin-bottom:0">Un grupo por producto. Captura una vez lo que comparten sus piezas y solo llena lo que cambia.
+              Este pedido tiene <b><span id="grupos-n">1</span></b> grupo(s).</p>
             </div>
+            <button class="btn primary sm" onclick="Entradas.agregarGrupo()"><?= icon('plus', 14) ?> Agregar producto</button>
           </div>
-          <div id="ent-compartidos" class="shgrid"></div>
         </div>
 
-        <!-- NIVEL 3: solo lo que cambia entre piezas. -->
-        <div class="itemwrap">
-          <div class="iw-head">
-            <div class="entgen">
-              <label>Cantidad de piezas</label>
-              <input id="ent-cantidad" type="number" min="1" max="500" value="20" style="width:88px">
-              <button class="btn primary sm" onclick="Entradas.generar()"><?= icon('plus', 14) ?> Generar unidades</button>
-              <button class="btn ghost sm" onclick="Entradas.abrirPegar()"><?= icon('copy', 14) ?> Pegar desde Excel</button>
-            </div>
-          </div>
-          <div class="iw-scroll">
-            <table class="itemtable">
-              <thead><tr id="entrada-head"></tr></thead>
-              <tbody id="entrada-items"></tbody>
-            </table>
-          </div>
-          <div class="iw-foot">
-            <button class="btn ghost sm" onclick="Entradas.addRow()"><?= icon('plus', 14) ?> Agregar una</button>
-            <button class="btn ghost sm" onclick="Entradas.addRow(5)"><?= icon('plus', 14) ?> Agregar 5</button>
-            <span class="muted" id="envio-reparto"></span>
-          </div>
+        <div id="grupos-cont"></div>
+
+        <div style="margin:10px 0 14px">
+          <button class="btn ghost sm" onclick="Entradas.agregarGrupo()"><?= icon('plus', 14) ?> Agregar otro producto al pedido</button>
+          <span class="muted" id="envio-reparto" style="margin-left:10px"></span>
         </div>
+
         <div class="summary" id="entrada-summary"></div>
         <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:8px">
           <button class="btn ghost" onclick="Entradas.previsualizar()"><?= icon('eye', 15) ?> Vista previa</button>
@@ -262,10 +249,11 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
 </div>
 
 <div class="modal-bg" id="prev-bg">
-  <div class="modal" style="max-width:760px">
+  <div class="modal" style="max-width:820px">
     <h2><span><?= icon('eye', 17) ?> Vista previa: <span id="prev-count">0</span> pieza(s)</span><span class="x" onclick="Entradas.cerrarPrev()"><?= icon('x', 18) ?></span></h2>
     <div class="mbody">
-      <p class="muted" style="font-size:.82rem; margin-bottom:12px">Así quedará cada pieza, ya combinando los datos compartidos con los de cada unidad.</p>
+      <p class="muted" style="font-size:.82rem; margin-bottom:12px">Así quedará el pedido completo, combinando los datos compartidos de cada grupo con los de cada unidad. Se creará <b>un solo pedido</b>.</p>
+      <div id="prev-resumen" style="margin-bottom:14px"></div>
       <div id="prev-problemas"></div>
       <div id="prev-tabla"></div>
     </div>

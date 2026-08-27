@@ -16,8 +16,8 @@ use App\Database;
 use App\Models\InventoryItem;
 use App\Services\ImportExportService as IE;
 
-const TEST_BIZ = 903;
-const TEST_USER = 804;
+const TEST_BIZ = 900903;
+const TEST_USER = 900804;
 
 $db = Database::connection();
 

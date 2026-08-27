@@ -114,20 +114,20 @@ test('un negocio SIN piezas no reporta todo como vacío', function () {
     // Sería engañoso: en un negocio que apenas empieza, "sin datos" no significa que
     // el campo sea inútil, solo que aún no hay inventario.
     $db = App\Database::connection();
-    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([909]);
-    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([909]);
-    $db->prepare('DELETE FROM users WHERE id = ?')->execute([809]);
+    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([900909]);
+    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900909]);
+    $db->prepare('DELETE FROM users WHERE id = ?')->execute([900809]);
     $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-       ->execute([809, 'Vacio', 'vacio-cols@test.local', 'x']);
+       ->execute([900809, 'Vacio', 'vacio-cols@test.local', 'x']);
     $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
-       ->execute([909, 'Negocio sin piezas', 809]);
-    AD::seedCanonical(909, 809);
+       ->execute([900909, 'Negocio sin piezas', 900809]);
+    AD::seedCanonical(900909, 900809);
 
-    assertSame([], AD::fillRates(909), 'sin piezas no se afirma nada');
+    assertSame([], AD::fillRates(900909), 'sin piezas no se afirma nada');
 
-    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([909]);
-    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([909]);
-    $db->prepare('DELETE FROM users WHERE id = ?')->execute([809]);
+    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([900909]);
+    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900909]);
+    $db->prepare('DELETE FROM users WHERE id = ?')->execute([900809]);
 });
 
 // ---------------------------------------------------------------

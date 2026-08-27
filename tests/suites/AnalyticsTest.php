@@ -273,14 +273,14 @@ test('todo resultado es serializable a JSON (va de vuelta al modelo)', function 
 
 test('AISLAMIENTO: el negocio sale del contexto, nunca de los argumentos', function () {
     // Aunque el modelo mande business_id en los argumentos, se ignora.
-    $ajeno = new ToolContext(906, 1, '2026-08-19');
-    SS::flush(906);
+    $ajeno = new ToolContext(900906, 1, '2026-08-19');
+    SS::flush(900906);
     $r = Analytics::rankingVentas($ajeno, [
         'dimension' => 'name',
         'business_id' => 1,          // intento de fuga
         'periodo' => 'este_ano',
     ]);
-    assertSame(false, $r['encontrado'], 'el negocio 906 no tiene ventas, pese al argumento');
+    assertSame(false, $r['encontrado'], 'el negocio de prueba no tiene ventas, pese al argumento');
 });
 
 test('un periodo relativo inválido se explica, no truena', function () use ($ctx) {
@@ -322,19 +322,19 @@ test('MODULARIDAD: una dimensión nueva funciona sin función propia', function 
     // agrupa correctamente. No existe marca_mas_vendida() en ninguna parte.
     $db = App\Database::connection();
     $limpiar = function () use ($db) {
-        $db->prepare('DELETE FROM inventory_items WHERE business_id = ?')->execute([907]);
-        $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([907]);
-        $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([907]);
-        $db->prepare('DELETE FROM users WHERE id = ?')->execute([807]);
+        $db->prepare('DELETE FROM inventory_items WHERE business_id = ?')->execute([900907]);
+        $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([900907]);
+        $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900907]);
+        $db->prepare('DELETE FROM users WHERE id = ?')->execute([900807]);
     };
     $limpiar();
 
     $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-       ->execute([807, 'Refaccionaria', 'refa@test.local', 'x']);
+       ->execute([900807, 'Refaccionaria', 'refa@test.local', 'x']);
     $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
-       ->execute([907, 'Refaccionaria de prueba', 807]);
+       ->execute([900907, 'Refaccionaria de prueba', 900807]);
     $db->prepare('INSERT INTO attribute_definitions (business_id, user_id, field_key, label, field_type, sort_order) VALUES (?,?,?,?,?,?)')
-       ->execute([907, 807, 'marca', 'Marca', 'text', 1]);
+       ->execute([900907, 900807, 'marca', 'Marca', 'text', 1]);
 
     $ins = $db->prepare(
         'INSERT INTO inventory_items (business_id, user_id, name, attributes, cost, sale_price, sale_date)
@@ -342,11 +342,11 @@ test('MODULARIDAD: una dimensión nueva funciona sin función propia', function 
     );
     // 3 Bosch y 1 Valeo, todas vendidas en agosto.
     foreach ([['Balata', 'Bosch'], ['Balata', 'Bosch'], ['Filtro', 'Bosch'], ['Filtro', 'Valeo']] as $i => [$n, $marca]) {
-        $ins->execute([907, 807, $n, json_encode(['marca' => $marca]), 100, 250, '2026-08-1' . $i]);
+        $ins->execute([900907, 900807, $n, json_encode(['marca' => $marca]), 100, 250, '2026-08-1' . $i]);
     }
 
-    App\Services\Agent\SchemaSemantics::flush(907);
-    $ctxRefa = new ToolContext(907, 807, '2026-08-19');
+    App\Services\Agent\SchemaSemantics::flush(900907);
+    $ctxRefa = new ToolContext(900907, 900807, '2026-08-19');
 
     $r = Analytics::rankingVentas($ctxRefa, [
         'dimension' => 'marca',
@@ -360,7 +360,7 @@ test('MODULARIDAD: una dimensión nueva funciona sin función propia', function 
     assertSame(3, $r['top']['unidades']);
 
     $limpiar();
-    App\Services\Agent\SchemaSemantics::flush(907);
+    App\Services\Agent\SchemaSemantics::flush(900907);
 });
 
 // ---------------------------------------------------------------

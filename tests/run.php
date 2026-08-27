@@ -11,6 +11,29 @@ define('APP_CONFIG', $config);
 
 $GLOBALS['__tests'] = ['pass' => 0, 'fail' => 0, 'failures' => []];
 
+/**
+ * Piso de ids para los negocios y usuarios de prueba.
+ *
+ * Las suites limpian con DELETE ... WHERE business_id = N. Si ese N coincidiera con un
+ * negocio REAL, la limpieza borraría datos de producción en cascada — y el
+ * AUTO_INCREMENT de este proyecto ya iba en 956 con una cuenta real en el 929.
+ *
+ * Todo id de prueba vive por encima de este piso, imposible de alcanzar por uso normal.
+ */
+const ID_MIN_PRUEBAS = 900000;
+
+/** Falla ruidosamente si una suite intenta operar sobre un id que podría ser real. */
+function assertIdDePrueba(int $id): void
+{
+    if ($id < ID_MIN_PRUEBAS) {
+        throw new \RuntimeException(
+            "ID {$id} está por debajo de ID_MIN_PRUEBAS: una prueba NUNCA debe crear ni "
+            . "borrar registros con un id que el sistema pueda asignar a un negocio real."
+        );
+    }
+}
+
+
 function test(string $name, callable $fn): void
 {
     try {

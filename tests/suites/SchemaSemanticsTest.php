@@ -195,49 +195,49 @@ test('MODULARIDAD: una dimensión nueva funciona por configuración, sin código
     // Se registra "marca" como atributo de un negocio de prueba y debe aparecer como
     // dimensión válida, con su expresión SQL, sin que exista marca_mas_vendida().
     $db = App\Database::connection();
-    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([905]);
-    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([905]);
-    $db->prepare('DELETE FROM users WHERE id = ?')->execute([805]);
+    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([900905]);
+    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900905]);
+    $db->prepare('DELETE FROM users WHERE id = ?')->execute([900805]);
 
     $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-       ->execute([805, 'Modularidad', 'modularidad@test.local', 'x']);
+       ->execute([900805, 'Modularidad', 'modularidad@test.local', 'x']);
     $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
-       ->execute([905, 'Refaccionaria de prueba', 805]);
+       ->execute([900905, 'Refaccionaria de prueba', 900805]);
     $db->prepare('INSERT INTO attribute_definitions (business_id, user_id, field_key, label, field_type, sort_order) VALUES (?,?,?,?,?,?)')
-       ->execute([905, 805, 'marca', 'Marca', 'text', 1]);
+       ->execute([900905, 900805, 'marca', 'Marca', 'text', 1]);
 
-    SS::flush(905);
-    $d = SS::dimension(905, 'marca');
+    SS::flush(900905);
+    $d = SS::dimension(900905, 'marca');
     assertTrue($d !== null, '"marca" debe existir como dimensión sin escribir código');
     assertSame('Marca', $d['label']);
     assertSame('attributes', $d['source']);
     assertTrue(str_contains(SS::sqlExpression($d), '"marca"'));
 
-    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([905]);
-    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([905]);
-    $db->prepare('DELETE FROM users WHERE id = ?')->execute([805]);
-    SS::flush(905);
+    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([900905]);
+    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900905]);
+    $db->prepare('DELETE FROM users WHERE id = ?')->execute([900805]);
+    SS::flush(900905);
 });
 
 test('AISLAMIENTO: el catálogo de un negocio no trae dimensiones de otro', function () {
     $db = App\Database::connection();
-    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([906]);
-    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([906]);
-    $db->prepare('DELETE FROM users WHERE id = ?')->execute([806]);
+    $db->prepare('DELETE FROM attribute_definitions WHERE business_id = ?')->execute([900906]);
+    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900906]);
+    $db->prepare('DELETE FROM users WHERE id = ?')->execute([900806]);
     $db->prepare('INSERT INTO users (id, name, email, password_hash) VALUES (?,?,?,?)')
-       ->execute([806, 'Aislado', 'aislado@test.local', 'x']);
+       ->execute([900806, 'Aislado', 'aislado@test.local', 'x']);
     $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
-       ->execute([906, 'Papelería de prueba', 806]);
+       ->execute([900906, 'Papelería de prueba', 900806]);
 
-    SS::flush(906);
-    $dims = SS::forBusiness(906)['dimensions'];
+    SS::flush(900906);
+    $dims = SS::forBusiness(900906)['dimensions'];
     $dinamicas = array_filter($dims, fn($d) => $d['source'] === 'attributes');
     assertSame(0, count($dinamicas), 'un negocio sin atributos propios no hereda los de otro');
-    assertSame(0, SS::forBusiness(906)['totals']['pieces'], 'ni sus piezas');
+    assertSame(0, SS::forBusiness(900906)['totals']['pieces'], 'ni sus piezas');
 
-    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([906]);
-    $db->prepare('DELETE FROM users WHERE id = ?')->execute([806]);
-    SS::flush(906);
+    $db->prepare('DELETE FROM businesses WHERE id = ?')->execute([900906]);
+    $db->prepare('DELETE FROM users WHERE id = ?')->execute([900806]);
+    SS::flush(900906);
 });
 
 test('el catálogo se memoiza: el tool loop no reconsulta en cada paso', function () {

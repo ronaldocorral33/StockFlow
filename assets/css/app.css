@@ -183,6 +183,15 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
 .cap-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px}
 .cap-grid .field{margin:0}
 /* Captura por lote: campos compartidos y controles de generación. */
+/* Grupos de productos dentro de un pedido. Cada grupo es una tarjeta plegable. */
+.grupo{border:1px solid var(--line); border-radius:var(--radius-md); background:var(--paper); box-shadow:var(--shadow-sm); margin-bottom:12px; overflow:hidden}
+.grupo.col .grupo-head{border-bottom:none}
+.grupo-head{display:flex; align-items:center; gap:10px; padding:11px 14px; background:var(--surface); border-bottom:1px solid var(--line)}
+.grupo-tit{flex:1; font-weight:700; font-size:.92rem; display:flex; flex-direction:column; gap:1px; min-width:0}
+.grupo-sub{font-weight:400; font-size:.75rem; color:var(--ink-soft)}
+.grupo-act{display:flex; align-items:center; gap:6px; flex:none}
+.grupo-body{padding:14px}
+.grupo-body .colgroup-t{margin-bottom:8px}
 .shgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px}
 .shfield{border:1px solid var(--line); border-radius:var(--radius-sm); padding:9px 11px; background:var(--paper); transition:border-color .16s var(--ease), background .16s var(--ease)}
 .shfield.on{border-color:var(--royal); background:var(--royal-soft)}
