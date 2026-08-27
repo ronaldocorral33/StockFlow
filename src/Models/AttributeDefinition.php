@@ -228,46 +228,96 @@ class AttributeDefinition
         $stmt = $pdo->prepare(
             'INSERT IGNORE INTO attribute_definitions
                 (business_id, user_id, field_key, label, field_type, storage, semantic_role,
-                 is_required, show_in_table, visible_in_sales, filterable, analytics_enabled, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 is_required, is_editable,
+                 show_in_table, visible_in_sales, visible_in_entries, visible_in_export,
+                 filterable, analytics_enabled,
+                 sort_order, sort_order_sales, sort_order_entries, sort_order_export)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         foreach (self::CANONICAL_SEED as $i => $c) {
+            $orden = $i + 1;
             $stmt->execute([
-                $businessId, $ownerUserId, $c[0], $c[1], $c[2], self::STORAGE_COLUMN, $c[3],
-                $c[4], $c[5], $c[8], $c[6], $c[7], $i + 1,
+                $businessId, $ownerUserId, $c['key'], $c['label'], $c['type'],
+                self::STORAGE_COLUMN, $c['role'] ?? null,
+                0,
+                // Un campo calculado no se escribe nunca: lo produce la base.
+                ($c['type'] === 'computed') ? 0 : ($c['editable'] ?? 1),
+                $c['inv'] ?? 0, $c['sal'] ?? 0, $c['ent'] ?? 0, $c['exp'] ?? 0,
+                $c['filter'] ?? 1, $c['analytics'] ?? 1,
+                $orden,
+                $c['ord_sal'] ?? $orden, $c['ord_ent'] ?? $orden, $c['ord_exp'] ?? $orden,
             ]);
         }
     }
 
     /**
-     * Definición de los campos canónicos. Espejo de sql/006_field_registry.sql.
+     * Definición de los campos canónicos. Espejo de sql/006 y sql/008.
      *
      * Deliberadamente NO incluye los campos internos (id, business_id, user_id,
-     * supplier_id, purchase_order_id, created_at, updated_at): ésos son integridad
-     * del sistema, no vocabulario del negocio, y nadie debe poder ocultarlos ni
+     * supplier_id, purchase_order_id, created_at, updated_at): ésos son integridad del
+     * sistema, no vocabulario del negocio, y nadie debe poder ocultarlos ni
      * renombrarlos. Registrar solo lo que el negocio puede configurar es lo que hace
      * que esa frontera sea imposible de cruzar por accidente.
      *
-     * [field_key, label, field_type, semantic_role, required, visible_inventario,
-     *  filterable, analytics, visible_salidas]
+     * Se escribe con claves y no por posición: con cuatro visibilidades y cuatro
+     * órdenes, un arreglo posicional de dieciocho columnas es imposible de leer y muy
+     * fácil de desalinear — que fue exactamente lo que dejó `profit` editable en los
+     * negocios nuevos.
+     *
+     * Las claves de orden (ord_*) se omiten cuando coincide con el orden general.
      */
     private const CANONICAL_SEED = [
-        ['name',          'Producto',          'text',     self::ROLE_PRODUCT_NAME, 1, 1, 1, 1, 1],
-        ['variant_label', 'Variante',          'text',     null,                    0, 0, 1, 1, 0],
-        ['category',      'Categoría',         'text',     null,                    0, 0, 1, 1, 0],
-        ['subcategory',   'Subcategoría',      'text',     null,                    0, 0, 1, 1, 0],
-        ['supplier',      'Proveedor',         'text',     null,                    0, 0, 1, 1, 0],
-        ['order_number',  'Pedido',            'text',     null,                    0, 1, 1, 1, 1],
-        ['cost',          'Costo',             'number',   null,                    0, 1, 0, 0, 0],
-        ['shipping_cost', 'Envío',             'number',   null,                    0, 1, 0, 0, 0],
-        ['total_cost',    'Costo total',       'computed', null,                    0, 1, 0, 0, 1],
-        ['sale_price',    'Venta',             'number',   null,                    0, 1, 0, 0, 1],
-        ['profit',        'Ganancia',          'computed', null,                    0, 1, 0, 0, 1],
-        ['purchase_date', 'Fecha de compra',   'date',     null,                    0, 0, 1, 0, 0],
-        ['arrival_date',  'Fecha de llegada',  'date',     null,                    0, 0, 1, 0, 0],
-        ['sale_date',     'Fecha de venta',    'date',     null,                    0, 0, 1, 0, 1],
-    ];
+        ['key' => 'name',          'label' => 'Producto',         'type' => 'text',
+         'role' => self::ROLE_PRODUCT_NAME,
+         'inv' => 1, 'sal' => 1, 'ent' => 1, 'exp' => 1, 'ord_sal' => 3, 'ord_ent' => 1, 'ord_exp' => 6],
 
+        ['key' => 'variant_label', 'label' => 'Variante',         'type' => 'text',
+         'exp' => 1, 'ord_exp' => 7],
+
+        ['key' => 'category',      'label' => 'Categoría',        'type' => 'text',
+         'exp' => 1, 'ord_exp' => 8],
+
+        ['key' => 'subcategory',   'label' => 'Subcategoría',     'type' => 'text',
+         'exp' => 1, 'ord_exp' => 9],
+
+        ['key' => 'supplier',      'label' => 'Proveedor',        'type' => 'text',
+         'exp' => 1, 'ord_exp' => 2],
+
+        ['key' => 'order_number',  'label' => 'Pedido',           'type' => 'text',
+         'inv' => 1, 'sal' => 1, 'exp' => 1, 'ord_sal' => 2, 'ord_exp' => 1],
+
+        ['key' => 'cost',          'label' => 'Costo',            'type' => 'number',
+         'inv' => 1, 'ent' => 1, 'exp' => 1, 'filter' => 0, 'analytics' => 0,
+         'ord_ent' => 90, 'ord_exp' => 90],
+
+        ['key' => 'shipping_cost', 'label' => 'Envío',            'type' => 'number',
+         'inv' => 1, 'exp' => 1, 'filter' => 0, 'analytics' => 0, 'ord_exp' => 91],
+
+        ['key' => 'total_cost',    'label' => 'Costo total',      'type' => 'computed',
+         'inv' => 1, 'sal' => 1, 'exp' => 1, 'filter' => 0, 'analytics' => 0,
+         'ord_sal' => 4, 'ord_exp' => 92],
+
+        ['key' => 'sale_price',    'label' => 'Venta',            'type' => 'number',
+         'inv' => 1, 'sal' => 1, 'ent' => 1, 'exp' => 1, 'filter' => 0, 'analytics' => 0,
+         'ord_sal' => 5, 'ord_ent' => 91, 'ord_exp' => 93],
+
+        ['key' => 'profit',        'label' => 'Ganancia',         'type' => 'computed',
+         'inv' => 1, 'sal' => 1, 'exp' => 1, 'filter' => 0, 'analytics' => 0,
+         'ord_sal' => 6, 'ord_exp' => 94],
+
+        ['key' => 'purchase_date', 'label' => 'Fecha de compra',  'type' => 'date',
+         'exp' => 1, 'analytics' => 0, 'ord_exp' => 3],
+
+        ['key' => 'arrival_date',  'label' => 'Fecha de llegada', 'type' => 'date',
+         'exp' => 1, 'analytics' => 0, 'ord_exp' => 4],
+
+        // sale_date define el estado de la pieza (NULL = en stock). Se ve y se filtra,
+        // pero no se edita: asignarla fuera del flujo de venta dejaría piezas
+        // "vendidas" sin precio.
+        ['key' => 'sale_date',     'label' => 'Fecha de venta',   'type' => 'date',
+         'sal' => 1, 'exp' => 1, 'editable' => 0, 'analytics' => 0,
+         'ord_sal' => 1, 'ord_exp' => 5],
+    ];
     /**
      * Las CUATRO pantallas con presentación configurable, y las columnas que la guardan.
      *

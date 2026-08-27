@@ -369,6 +369,26 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
 .tplcard .fields span{background:var(--surface); color:var(--ink-soft); font-size:.7rem; font-weight:600; padding:3px 9px; border-radius:20px}
 
 /* ============ SETTINGS ============ */
+/* Pantalla "Campos y vistas". */
+.camposT{width:100%; border-collapse:collapse; font-size:.84rem; min-width:820px; background:var(--paper)}
+.camposT th{background:var(--surface); padding:9px 10px; text-align:left; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); border-bottom:1px solid var(--line); white-space:nowrap}
+.camposT td{padding:8px 10px; border-top:1px solid var(--line-soft); vertical-align:top}
+.camposT tr.principal{background:var(--royal-soft)}
+.camposT input[type=checkbox]{accent-color:var(--royal); width:15px; height:15px}
+.camposT select, .camposT .lblinp, .camposT .optinp{font:inherit; font-size:.83rem; border:1px solid var(--line); border-radius:7px; padding:5px 8px; background:var(--paper); width:100%}
+.camposT .lblinp{font-weight:700}
+.camposT .optinp{font-size:.76rem}
+.camposT select:focus, .camposT input:focus{outline:none; border-color:var(--royal); box-shadow:0 0 0 3px var(--royal-ring)}
+.camposT input:disabled{background:var(--surface); color:var(--ink-faint)}
+/* Insignias de clase: la regla de cada campo depende de su clase, así que se marca. */
+.cbadge{display:inline-block; font-size:.65rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:2px 7px; border-radius:20px; white-space:nowrap}
+.cbadge.base{background:var(--surface-2); color:var(--ink-soft)}
+.cbadge.calc{background:var(--amber-soft); color:var(--amber)}
+.cbadge.cust{background:var(--green-soft); color:var(--green)}
+.cbadge.prin{background:var(--royal); color:#fff; margin-left:4px}
+.cbadge.warn{background:var(--amber-soft); color:var(--amber); margin-left:4px}
+.cols3-lite{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin-top:10px}
+.cols3-lite p{font-size:.8rem; margin-top:5px}
 .settings-shell{min-height:100vh; background:var(--paper)}
 .settings-top{
   height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 28px;

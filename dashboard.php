@@ -314,8 +314,34 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
     </div>
   </div>
 </div>
-<div class="modal-bg" id="import-bg">
+<div class="modal-bg" id="exp-bg">
   <div class="modal" style="max-width:560px">
+    <h2><span><?= icon('download', 17) ?> Exportar a Excel</span><span class="x" onclick="ImportExport.closeExport()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <div class="entgen" style="margin-bottom:14px">
+        <label>Qué piezas</label>
+        <select id="exp-scope">
+          <option value="all">Todas</option>
+          <option value="stock">Solo las que tengo en stock</option>
+          <option value="sold">Solo las vendidas</option>
+        </select>
+      </div>
+      <label class="colopt" style="margin-bottom:12px">
+        <input type="checkbox" id="exp-id" checked>
+        <span class="colopt-l">Incluir la columna ID
+          <span class="colhint">permite reimportar y sincronizar sin duplicar</span></span>
+      </label>
+      <div class="colgroup-t">Columnas a exportar</div>
+      <div id="exp-campos"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="ImportExport.closeExport()">Cancelar</button>
+      <button class="btn primary" onclick="ImportExport.doExport()"><?= icon('download', 15) ?> Descargar Excel</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="import-bg">
+  <div class="modal" style="max-width:700px">
     <h2><span><?= icon('upload', 17) ?> Importar Excel</span><span class="x" onclick="ImportExport.close()"><?= icon('x', 18) ?></span></h2>
     <div class="mbody">
       <p class="muted" style="font-size:.84rem; margin-bottom:14px" id="import-resumen"></p>
@@ -336,6 +362,8 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
         </div>
       </label>
 
+      <div class="colgroup-t" style="margin-top:16px">Cómo se leerá cada columna del archivo</div>
+      <div id="import-mapeo" style="margin-bottom:12px"></div>
       <div id="import-preview" class="imppreview"></div>
     </div>
     <div class="mfoot">

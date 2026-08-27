@@ -141,6 +141,131 @@ class ImportExportService
         return $data;
     }
 
+    /**
+     * Propone a qué campo del negocio corresponde cada encabezado del archivo.
+     *
+     * POR QUÉ UNA SUGERENCIA Y NO UN MAPEO SILENCIOSO
+     * Antes el importador adivinaba con FIXED_ALIASES y no lo decía. Cuando fallaba —y
+     * falló: la columna "Pedido" no estaba en la lista y se perdía en cada importación—
+     * el usuario no tenía forma de enterarse hasta ver el resultado. Ahora se propone,
+     * se muestra, y el usuario confirma o corrige.
+     *
+     * El orden de búsqueda va de más a menos confiable:
+     *   1. La ETIQUETA del campo, tal como el negocio la escribió.
+     *   2. La CLAVE interna (útil cuando el archivo salió de una exportación).
+     *   3. Los ALIAS HISTÓRICOS, que se conservan para no romper archivos viejos.
+     *
+     * @return array<int, array{header:string, field_key:?string, label:?string, reason:string}>
+     */
+    public static function suggestMapping(int $businessId, array $headers): array
+    {
+        $registro = AttributeDefinition::listRegistry($businessId);
+
+        $porEtiqueta = [];
+        $porClave = [];
+        foreach ($registro as $f) {
+            $porEtiqueta[self::normalizeHeader($f['label'])] = $f;
+            $porClave[self::normalizeHeader($f['field_key'])] = $f;
+        }
+
+        // Alias históricos, ahora como TERCERA opción y no como única vía.
+        $porAlias = [];
+        foreach (self::FIXED_ALIASES as $clave => $alias) {
+            foreach ($alias as $a) {
+                $porAlias[self::normalizeHeader($a)] = $clave;
+            }
+        }
+
+        $usados = [];
+        $out = [];
+        foreach ($headers as $h) {
+            $n = self::normalizeHeader((string)$h);
+            $campo = null;
+            $razon = 'sin coincidencia';
+
+            if ($n === 'id') {
+                // El ID no es un campo del registro: es la llave de sincronización que
+                // escribe la exportación.
+                $out[] = ['header' => (string)$h, 'field_key' => 'id', 'label' => 'ID (para sincronizar)',
+                          'reason' => 'columna de sincronización'];
+                continue;
+            }
+
+            if (isset($porEtiqueta[$n])) {
+                $campo = $porEtiqueta[$n];
+                $razon = 'coincide con la etiqueta del campo';
+            } elseif (isset($porClave[$n])) {
+                $campo = $porClave[$n];
+                $razon = 'coincide con la clave interna';
+            } elseif (isset($porAlias[$n])) {
+                foreach ($registro as $f) {
+                    if ($f['field_key'] === $porAlias[$n]) { $campo = $f; break; }
+                }
+                $razon = 'encabezado histórico reconocido';
+            }
+
+            // Un mismo campo no puede recibir dos columnas: la segunda se deja sin
+            // asignar para que el usuario decida, en vez de que una pise a la otra.
+            if ($campo && isset($usados[$campo['field_key']])) {
+                $campo = null;
+                $razon = 'otra columna ya está asignada a ese campo';
+            }
+            if ($campo) { $usados[$campo['field_key']] = true; }
+
+            $out[] = [
+                'header' => (string)$h,
+                'field_key' => $campo['field_key'] ?? null,
+                'label' => $campo['label'] ?? null,
+                'reason' => $razon,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Traduce una fila cruda usando el mapeo QUE EL USUARIO CONFIRMÓ.
+     *
+     * Es el camino explícito, en contraste con mapImportRow(), que adivina. Las claves
+     * del mapeo se validan contra el registro: una clave que no exista se ignora, así
+     * que un mapeo manipulado no puede escribir en una columna arbitraria.
+     */
+    public static function mapWithMapping(array $rawRow, array $mapping, array $registro): ?array
+    {
+        $porClave = [];
+        foreach ($registro as $f) { $porClave[$f['field_key']] = $f; }
+
+        $data = ['attributes' => []];
+        foreach ($rawRow as $encabezado => $valor) {
+            $destino = $mapping[$encabezado] ?? null;
+            if ($destino === null || $destino === '' || $destino === '__ignorar__') {
+                continue;
+            }
+            if ($valor === null || $valor === '') {
+                continue;
+            }
+
+            if ($destino === 'id') {
+                $data['id'] = trim((string)$valor);
+                continue;
+            }
+            if ($destino === 'order_number') {
+                $data['order_number'] = trim((string)$valor);
+                continue;
+            }
+            if (!isset($porClave[$destino])) {
+                continue;   // clave fuera del registro: se ignora
+            }
+
+            $campo = $porClave[$destino];
+            if ($campo['storage'] === AttributeDefinition::STORAGE_JSON) {
+                $data['attributes'][$campo['field_key']] = (string)$valor;
+            } else {
+                $data[$campo['field_key']] = self::coerce($campo['field_key'], $valor);
+            }
+        }
+
+        return empty($data['name']) ? null : $data;
+    }
     /** Solo inserta. Es el comportamiento histórico: rápido, y el que duplica si te equivocas. */
     public const MODE_ADD = 'add';
     /** Empareja contra lo que ya existe: actualiza lo conocido, inserta solo lo nuevo. */
@@ -231,10 +356,12 @@ class ImportExportService
         int $actorUserId,
         array $rawRows,
         string $mode = self::MODE_ADD,
-        bool $dryRun = false
+        bool $dryRun = false,
+        ?array $mapping = null
     ): array {
         $mode = $mode === self::MODE_SYNC ? self::MODE_SYNC : self::MODE_ADD;
         $attrDefs = AttributeDefinition::listForBusiness($businessId);
+        $registroCompleto = AttributeDefinition::listRegistry($businessId);
 
         // Índices de lo que ya existe. Se arman una sola vez: emparejar 700 filas con
         // una consulta por fila serían 700 viajes a la base.
@@ -254,7 +381,11 @@ class ImportExportService
         $pdo->beginTransaction();
         try {
             foreach ($rawRows as $i => $rawRow) {
-                $data = self::mapImportRow($rawRow, $attrDefs);
+                // Con mapeo confirmado se usa ése; sin él se conserva el camino
+                // automático, para no romper las importaciones que ya funcionaban.
+                $data = $mapping !== null
+                    ? self::mapWithMapping($rawRow, $mapping, $registroCompleto)
+                    : self::mapImportRow($rawRow, $attrDefs);
                 if ($data === null) {
                     $r['skipped']++;
                     continue;

@@ -4,6 +4,7 @@ namespace App\Services\Agent;
 if (!defined('APP_BOOTSTRAP')) { http_response_code(403); exit('Forbidden'); }
 
 use App\Database;
+use App\Models\AttributeDefinition;
 
 /**
  * Capa semántica: le explica al modelo QUÉ SIGNIFICAN los datos, no solo cómo se llaman.
@@ -28,8 +29,10 @@ use App\Database;
  * ejemplos cubren las que no.
  *
  * Por eso aquí NO hay una sola palabra de un giro concreto: ni "jersey", ni "equipo",
- * ni "talla". Las etiquetas fijas son genéricas (Producto, Variante, Categoría) y todo
- * lo específico sale de attribute_definitions y de los datos.
+ * ni "talla". Desde la fase 4 tampoco hay etiquetas: TODAS —incluidas las canónicas—
+ * salen del registro del negocio, así que si el dueño renombró "Producto" a "Equipo",
+ * el asistente dice "Equipo". Lo único que queda escrito aquí es qué SIGNIFICA cada
+ * campo dentro del modelo de datos, que es plomería del esquema y no vocabulario.
  *
  * FRONTERA DE SEGURIDAD
  * Las dimensiones son un catálogo CERRADO. El modelo manda una clave; si no está en el
@@ -47,39 +50,24 @@ class SchemaSemantics
     public const MIN_FILL_RATE = 0.10;
 
     /**
-     * Dimensiones de columna fija, comunes a CUALQUIER negocio de productos.
-     * Las etiquetas son deliberadamente genéricas: el vocabulario del giro llega por
-     * los ejemplos y por attribute_definitions, no por este arreglo.
+     * Descripción de cada dimensión canónica.
+     *
+     * Ya NO contiene etiquetas: la etiqueta la pone el negocio en el registro
+     * (attribute_definitions.label), y si el dueño renombró "Producto" a "Equipo", el
+     * asistente debe decir "Equipo".
+     *
+     * Lo que queda aquí es lo que NO es vocabulario del negocio: qué significa el campo
+     * dentro del modelo de datos. Eso es plomería del esquema y es igual para todos.
      */
-    private const FIXED_DIMENSIONS = [
-        'name' => [
-            'label' => 'Producto',
-            'column' => 'i.name',
-            'description' => 'Nombre principal del producto. Es la dimensión por defecto '
-                . 'cuando la pregunta es sobre "qué se vendió más" sin más detalle.',
-        ],
-        'variant_label' => [
-            'label' => 'Variante',
-            'column' => 'i.variant_label',
-            'description' => 'Distingue dos piezas del mismo producto (edición, personalización, etc.).',
-        ],
-        'category' => [
-            'label' => 'Categoría',
-            'column' => 'i.category',
-            'description' => 'Agrupación amplia, opcional. Muchos negocios no la usan.',
-        ],
-        'subcategory' => [
-            'label' => 'Subcategoría',
-            'column' => 'i.subcategory',
-            'description' => 'Subdivisión de la categoría, opcional.',
-        ],
-        'supplier' => [
-            'label' => 'Proveedor',
-            'column' => 's.name',
-            'description' => 'De quién se compró la pieza.',
-        ],
+    private const CANONICAL_HINTS = [
+        'name' => 'Identificador principal del producto. Es la dimensión por defecto '
+            . 'cuando la pregunta es sobre "qué se vendió más" sin más detalle.',
+        'variant_label' => 'Distingue dos piezas del mismo producto (edición, personalización).',
+        'category' => 'Agrupación amplia, opcional. Muchos negocios no la usan.',
+        'subcategory' => 'Subdivisión de la categoría, opcional.',
+        'supplier' => 'De quién se compró la pieza.',
+        'order_number' => 'Pedido de compra al que pertenece la pieza.',
     ];
-
     /**
      * Sinónimos TRANSVERSALES a cualquier vertical. No es vocabulario de un giro:
      * "producto" o "vendido" significan lo mismo en jerseys, joyería o refacciones.
@@ -118,34 +106,48 @@ class SchemaSemantics
             return self::$cache[$businessId];
         }
 
+        // TODAS las dimensiones salen del REGISTRO del negocio: canónicas y
+        // personalizadas por igual. Antes las canónicas venían de una constante con
+        // etiquetas fijas, así que un negocio no podía llamarle "Equipo" a su producto
+        // y el asistente seguía diciendo "Producto".
+        //
+        // Se respeta analytics_enabled: un campo que el dueño marcó como no analizable
+        // no se le ofrece al modelo, aunque exista y tenga datos.
         $dimensions = [];
-        foreach (self::FIXED_DIMENSIONS as $key => $def) {
-            $dimensions[$key] = $def + [
-                'key' => $key,
-                'source' => 'column',
-                'synonyms' => self::GENERIC_SYNONYMS[$key] ?? [],
-            ];
-        }
-
-        // Dimensiones dinámicas: lo que ESTE negocio decidió que le importa.
-        // Aquí es donde "Talla", "Liga" o "Material" entran sin una línea de código.
-        foreach (self::attributeDefinitions($businessId) as $def) {
-            $key = (string)$def['field_key'];
-            // Las fijas están reservadas: si un negocio define un atributo con un
-            // field_key que choca, se le da un alias en vez de perderlo o sobrescribir.
-            if (isset($dimensions[$key])) {
-                $key .= '_attr';
+        foreach (AttributeDefinition::listRegistry($businessId) as $def) {
+            if (empty($def['analytics_enabled'])) {
+                continue;
             }
+            $key = (string)$def['field_key'];
+            $esColumna = $def['storage'] === AttributeDefinition::STORAGE_COLUMN;
+
+            // Los campos calculados y las fechas no son dimensiones para agrupar:
+            // agrupar por "Ganancia" o por cada fecha distinta no responde nada útil.
+            if ($esColumna && !isset(self::CANONICAL_HINTS[$key])) {
+                continue;
+            }
+
             $dimensions[$key] = [
                 'key' => $key,
                 'label' => (string)$def['label'],
-                'source' => 'attributes',
-                'json_key' => (string)$def['field_key'],
-                'description' => 'Atributo personalizado de este negocio.',
-                'synonyms' => [mb_strtolower((string)$def['label'])],
+                'source' => $esColumna ? 'column' : 'attributes',
+                'description' => $esColumna
+                    ? self::CANONICAL_HINTS[$key]
+                    : 'Campo propio de este negocio.',
+                // Los sinónimos genéricos siguen valiendo para las canónicas; la
+                // etiqueta del negocio se suma como sinónimo de sí misma.
+                'synonyms' => array_values(array_unique(array_merge(
+                    self::GENERIC_SYNONYMS[$key] ?? [],
+                    [mb_strtolower((string)$def['label'])]
+                ))),
+                'is_principal' => !empty($def['is_principal']),
             ];
+            if ($esColumna) {
+                $dimensions[$key]['column'] = AttributeDefinition::sqlExpressionFor($def);
+            } else {
+                $dimensions[$key]['json_key'] = $key;
+            }
         }
-
         $stats = self::collectStats($businessId, $dimensions);
         foreach ($dimensions as $key => $_) {
             $dimensions[$key]['examples'] = $stats[$key]['examples'] ?? [];
@@ -215,7 +217,10 @@ class SchemaSemantics
                 continue;
             }
             $ej = $d['examples'] ? ' — ejemplos: ' . implode(', ', $d['examples']) : '';
-            $lines[] = sprintf('- %s → "%s" (%d valores distintos)%s', $key, $d['label'], $d['distinct'], $ej);
+            // Marcar el campo principal le dice al modelo cuál usar cuando la pregunta
+            // es "qué se vendió más" sin decir por qué agrupar.
+            $marca = !empty($d['is_principal']) ? ' [PRINCIPAL: identifica al producto]' : '';
+            $lines[] = sprintf('- %s → "%s"%s (%d valores distintos)%s', $key, $d['label'], $marca, $d['distinct'], $ej);
         }
 
         // Decir explícitamente qué NO sirve es tan útil como decir qué sirve: evita que
@@ -240,16 +245,6 @@ class SchemaSemantics
     // ---------------------------------------------------------------
     // Consultas de apoyo
     // ---------------------------------------------------------------
-
-    private static function attributeDefinitions(int $businessId): array
-    {
-        $stmt = Database::chatbotReadOnly()->prepare(
-            'SELECT field_key, label FROM attribute_definitions
-             WHERE business_id = ? ORDER BY sort_order ASC, id ASC'
-        );
-        $stmt->execute([$businessId]);
-        return $stmt->fetchAll();
-    }
 
     private static function totals(int $businessId): array
     {
@@ -282,12 +277,15 @@ class SchemaSemantics
 
         foreach ($dimensions as $key => $d) {
             $expr = self::sqlExpression($d);
-            $join = $d['source'] === 'column' && str_starts_with($d['column'], 's.')
-                ? 'LEFT JOIN suppliers s ON s.id = i.supplier_id'
-                : '';
+            // Se incluyen SIEMPRE los dos JOIN en vez de deducir cuál hace falta:
+            // son LEFT JOIN sobre llaves foráneas indexadas, su costo es despreciable, y
+            // decidirlo por dimensión ya produjo un fallo silencioso cuando order_number
+            // pasó a ser dimensión y nadie recordó agregar su tabla.
+            $joins = 'LEFT JOIN suppliers s ON s.id = i.supplier_id'
+                . ' LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id';
 
             $sql = "SELECT $expr AS val, COUNT(*) AS n
-                    FROM inventory_items i $join
+                    FROM inventory_items i $joins
                     WHERE i.business_id = ?
                     GROUP BY val
                     ORDER BY n DESC";

@@ -117,6 +117,7 @@ class Analytics
                        COALESCE(SUM(i.profit), 0) AS ganancia
                 FROM inventory_items i
                 LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
                 WHERE " . implode(' AND ', $where) . "
                   AND $expr IS NOT NULL AND TRIM($expr) <> ''
                 GROUP BY valor
@@ -292,6 +293,7 @@ class Analytics
             $rows = self::run(
                 "SELECT COUNT(*) AS piezas, COALESCE(SUM(i.total_cost),0) AS invertido
                  FROM inventory_items i LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
                  WHERE $whereSql",
                 $params
             );
@@ -323,6 +325,7 @@ class Analytics
         $rows = self::run(
             "SELECT $expr AS valor, COUNT(*) AS piezas, COALESCE(SUM(i.total_cost),0) AS invertido
              FROM inventory_items i LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
              WHERE $whereSql AND $expr IS NOT NULL AND TRIM($expr) <> ''
              GROUP BY valor ORDER BY piezas $orden LIMIT $limite",
             $params
@@ -374,6 +377,7 @@ class Analytics
                     COUNT(*) AS historico,
                     SUM(i.sale_date IS NULL) AS en_stock
              FROM inventory_items i LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
              WHERE i.business_id = ? AND $expr IS NOT NULL AND TRIM($expr) <> ''
              GROUP BY valor
              HAVING en_stock = 0
@@ -458,6 +462,7 @@ class Analytics
                        COALESCE(SUM(CASE WHEN i.sale_date IS NOT NULL THEN i.sale_price ELSE 0 END), 0) AS ingresos
                 FROM inventory_items i
                 LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
                 WHERE " . implode(' AND ', $where) . "
                   AND $expr IS NOT NULL AND TRIM($expr) <> ''
                 GROUP BY valor
@@ -633,6 +638,7 @@ class Analytics
                     COALESCE(SUM(i.sale_price), 0) AS ingresos,
                     COALESCE(SUM(i.profit), 0) AS ganancia
              FROM inventory_items i LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN purchase_orders po ON po.id = i.purchase_order_id
              WHERE ' . implode(' AND ', $where),
             $params
         );
