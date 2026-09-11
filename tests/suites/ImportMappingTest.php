@@ -34,6 +34,8 @@ $db->prepare('INSERT INTO businesses (id, name, owner_user_id) VALUES (?,?,?)')
 AD::seedCanonical(IM_BIZ, IM_USER);
 $db->prepare('INSERT INTO attribute_definitions (business_id, user_id, field_key, label, field_type, storage, sort_order, visible_in_export) VALUES (?,?,?,?,?,?,?,1)')
    ->execute([IM_BIZ, IM_USER, 'material', 'Material', 'text', 'json', 1]);
+$db->prepare('INSERT INTO attribute_definitions (business_id, user_id, field_key, label, field_type, storage, sort_order) VALUES (?,?,?,?,?,?,?)')
+   ->execute([IM_BIZ, IM_USER, 'nombre', 'Nombre de jugador', 'text', 'json', 2]);
 
 // ---------------------------------------------------------------
 // La propuesta de mapeo
@@ -59,6 +61,20 @@ test('conserva los encabezados HISTÓRICOS, ahora como tercera opción', functio
     assertSame('name', $m[0]['field_key']);
     assertSame('cost', $m[1]['field_key']);
     assertTrue(str_contains($m[0]['reason'], 'histórico'));
+});
+
+test('Jugador se propone como Nombre de jugador cuando ese campo existe', function () {
+    $m = IE::suggestMapping(IM_BIZ, ['Jugador']);
+    assertSame('nombre', $m[0]['field_key']);
+    assertTrue(str_contains($m[0]['reason'], 'jugador historico'));
+});
+
+test('el importador legado guarda Jugador en attributes.nombre y no en Variante', function () {
+    $defs = AD::listForBusiness(IM_BIZ);
+    $d = IE::mapImportRow(['Producto' => 'FC Barcelona', 'Jugador' => 'Lamine Yamal'], $defs);
+    assertSame('FC Barcelona', $d['name']);
+    assertSame('Lamine Yamal', $d['attributes']['nombre']);
+    assertTrue(!array_key_exists('variant_label', $d));
 });
 
 test('reconoce la columna ID como llave de sincronización', function () {

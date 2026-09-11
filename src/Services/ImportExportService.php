@@ -10,6 +10,9 @@ use App\Models\PurchaseOrder;
 /** Mapeo de columnas de Excel <-> filas de inventory_items, tolerante a los encabezados del app original. */
 class ImportExportService
 {
+    /** Encabezados historicos que antes terminaban en variant_label. */
+    private const LEGACY_PLAYER_NAME_ALIASES = ['jugador', 'variante', 'variacion'];
+
     private const FIXED_ALIASES = [
         // 'id' es el camino de emparejamiento EXACTO en una re-importación: la
         // exportación ahora escribe esta columna justamente para poder volver.
@@ -121,6 +124,27 @@ class ImportExportService
             }
         }
 
+        // Algunos inventarios antiguos usaban la columna canonica `variant_label`
+        // para el nombre del jugador. Si el negocio ya creo su campo `nombre`, los
+        // encabezados historicos deben alimentar ese campo para no volver a dividir
+        // el mismo dato entre dos lugares. Una coincidencia directa con la etiqueta
+        // del campo conserva prioridad sobre esta compatibilidad.
+        $campoNombre = self::legacyPlayerNameField($attrDefs);
+        if ($campoNombre && !isset($attributes[$campoNombre['field_key']])) {
+            foreach (self::LEGACY_PLAYER_NAME_ALIASES as $alias) {
+                if (isset($consumedHeaders[$alias])) {
+                    continue;
+                }
+                if (array_key_exists($alias, $normalized)
+                    && $normalized[$alias] !== ''
+                    && $normalized[$alias] !== null) {
+                    $attributes[$campoNombre['field_key']] = (string)$normalized[$alias];
+                    $consumedHeaders[$alias] = true;
+                    break;
+                }
+            }
+        }
+
         $data = ['attributes' => $attributes];
         foreach (self::FIXED_ALIASES as $field => $aliases) {
             foreach ($aliases as $alias) {
@@ -167,6 +191,7 @@ class ImportExportService
             $porEtiqueta[self::normalizeHeader($f['label'])] = $f;
             $porClave[self::normalizeHeader($f['field_key'])] = $f;
         }
+        $campoNombre = self::legacyPlayerNameField($registro);
 
         // Alias históricos, ahora como TERCERA opción y no como única vía.
         $porAlias = [];
@@ -197,6 +222,9 @@ class ImportExportService
             } elseif (isset($porClave[$n])) {
                 $campo = $porClave[$n];
                 $razon = 'coincide con la clave interna';
+            } elseif ($campoNombre && in_array($n, self::LEGACY_PLAYER_NAME_ALIASES, true)) {
+                $campo = $campoNombre;
+                $razon = 'nombre de jugador historico reconocido';
             } elseif (isset($porAlias[$n])) {
                 foreach ($registro as $f) {
                     if ($f['field_key'] === $porAlias[$n]) { $campo = $f; break; }
@@ -220,6 +248,19 @@ class ImportExportService
             ];
         }
         return $out;
+    }
+
+    /** Campo personalizado que este inventario usa como nombre del jugador. */
+    private static function legacyPlayerNameField(array $definitions): ?array
+    {
+        foreach ($definitions as $def) {
+            if (($def['field_key'] ?? null) === 'nombre'
+                && ($def['storage'] ?? AttributeDefinition::STORAGE_JSON) === AttributeDefinition::STORAGE_JSON
+                && empty($def['archived_at'])) {
+                return $def;
+            }
+        }
+        return null;
     }
 
     /**
