@@ -16,20 +16,39 @@ const Inventario = (() => {
   // Antes esta constante era un arreglo literal de 9 columnas, y por eso Categoría
   // aparecía siempre aunque estuviera vacía en las 738 piezas.
 
-  async function loadMeta() {
-    if (metaLoaded) return;
+  /**
+   * @param {boolean} force Recarga aunque ya se haya cargado antes.
+   *
+   * Se carga UNA vez por sesión porque las categorías y los pedidos casi no cambian
+   * mientras alguien navega. Pero "casi" no es "nunca": borrar un pedido desde su
+   * pantalla dejaba su número vivo en este selector — un pedido fantasma que ya no
+   * existe y que al filtrarlo no devuelve nada. Por eso Pedidos puede forzar la
+   * recarga cuando su lista cambió.
+   */
+  async function loadMeta(force = false) {
+    if (metaLoaded && !force) return;
     const meta = await Api.get('items.php?action=meta');
+    const pedAntes = document.getElementById('filt-pedido').value;
+    const catAntes = document.getElementById('filt-categoria').value;
     const catSel = document.getElementById('filt-categoria');
     catSel.innerHTML = '<option value="">Todas las categorías</option>' +
       meta.categories.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
     const pedSel = document.getElementById('filt-pedido');
     pedSel.innerHTML = '<option value="">Todos los pedidos</option>' +
       meta.purchase_orders.map(p => `<option value="${p.id}">#${p.order_number}</option>`).join('');
+    // Se conserva lo que el usuario tuviera filtrado, si esa opción sigue existiendo.
+    // Si el pedido filtrado fue el que se borró, el selector vuelve a "todos" en vez
+    // de quedarse en un valor que ya no está en la lista.
+    pedSel.value = pedAntes;
+    catSel.value = catAntes;
     avgSoldPrice = meta.avg_sold_price != null ? Number(meta.avg_sold_price) : null;
     // El registro de campos define qué columnas dibujar. Se carga una vez por sesión.
     await Fields.load();
     metaLoaded = true;
   }
+
+  /** Vuelve a leer categorías y pedidos. La llama Pedidos tras borrar o renumerar. */
+  const refreshMeta = () => loadMeta(true);
 
   function currentFilters() {
     return {
@@ -521,7 +540,7 @@ const Inventario = (() => {
   }
 
   return {
-    render, setSort, pickColumns, toggleOne, toggleAll, clearSel,
+    render, refreshMeta, setSort, pickColumns, toggleOne, toggleAll, clearSel,
     openFilters, closeFilters, setAttrFilter, clearAttrFilters,
     openBulkEdit, bulkEditToggle, bulkEditSummary, closeBulkEdit, confirmBulkEdit,
     openBulkArrival, openBulkSell, applyBulkPrice, bulkRowCalc, closeBulk, confirmBulkSell,

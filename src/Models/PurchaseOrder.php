@@ -195,4 +195,305 @@ class PurchaseOrder
             throw $e;
         }
     }
+
+    // ===============================================================
+    // LEER, EDITAR Y BORRAR UN PEDIDO YA REGISTRADO
+    //
+    // Hasta aquí, un pedido solo se podía CREAR. Nació como efecto secundario de la
+    // captura: createWithItems() lo insertaba y nadie lo volvía a mirar. Eso dejaba
+    // sin salida el error más común — "registré el pedido 45 y me equivoqué" — porque
+    // la única forma de deshacerlo era borrar las piezas una por una en Inventario,
+    // y el pedido sobrevivía como fantasma en el filtro y en la gráfica.
+    // ===============================================================
+
+    /**
+     * Cifras de un pedido, calculadas SIEMPRE desde sus piezas.
+     *
+     * POR QUÉ NO SE USA item_count
+     * Esa columna es un contador denormalizado que solo se actualiza si alguien llama
+     * a refreshItemCount(). Si una pieza se borra desde Inventario, nadie lo llama y
+     * la columna miente. Un COUNT() sobre las piezas no puede desincronizarse, y a
+     * esta escala su costo es irrelevante frente a mostrar un número falso.
+     *
+     * El envío se suma de las PIEZAS, no de shipping_total_mxn del encabezado, por la
+     * misma razón: es lo que de verdad está cargado a los costos.
+     */
+    private const AGREGADOS = "
+        (SELECT COUNT(*) FROM inventory_items i WHERE i.purchase_order_id = po.id) AS piezas,
+        (SELECT COUNT(*) FROM inventory_items i WHERE i.purchase_order_id = po.id AND i.sale_date IS NOT NULL) AS vendidas,
+        (SELECT COALESCE(SUM(i.cost), 0) + COALESCE(SUM(i.shipping_cost), 0)
+           FROM inventory_items i WHERE i.purchase_order_id = po.id) AS costo_total,
+        (SELECT COALESCE(SUM(i.sale_price), 0)
+           FROM inventory_items i WHERE i.purchase_order_id = po.id AND i.sale_date IS NOT NULL) AS recuperado";
+
+    /** Convierte los agregados a números y agrega el neto, que es una resta y no un dato. */
+    private static function decorar(array $row): array
+    {
+        $row['piezas'] = (int)$row['piezas'];
+        $row['vendidas'] = (int)$row['vendidas'];
+        $row['disponibles'] = $row['piezas'] - $row['vendidas'];
+        $row['costo_total'] = (float)$row['costo_total'];
+        $row['recuperado'] = (float)$row['recuperado'];
+        $row['neto'] = round($row['recuperado'] - $row['costo_total'], 2);
+        // Con esto la pantalla no tiene que volver a deducir la regla de borrado.
+        $row['puede_borrarse'] = $row['vendidas'] === 0;
+        return $row;
+    }
+
+    /** @param array{q?:string} $filters */
+    public static function list(int $businessId, array $filters = []): array
+    {
+        $sql = 'SELECT po.*, s.name AS supplier_name,' . self::AGREGADOS . '
+                  FROM purchase_orders po
+                  LEFT JOIN suppliers s ON s.id = po.supplier_id
+                 WHERE po.business_id = ?';
+        $params = [$businessId];
+
+        $q = trim((string)($filters['q'] ?? ''));
+        if ($q !== '') {
+            // Se busca por número o por proveedor: son las dos formas en que alguien
+            // se refiere a un pedido de memoria.
+            $sql .= ' AND (CAST(po.order_number AS CHAR) LIKE ? OR s.name LIKE ?)';
+            $params[] = "%{$q}%";
+            $params[] = "%{$q}%";
+        }
+        $sql .= ' ORDER BY po.order_number DESC';
+
+        $stmt = Database::connection()->prepare($sql);
+        $stmt->execute($params);
+        return array_map([self::class, 'decorar'], $stmt->fetchAll());
+    }
+
+    public static function find(int $id, int $businessId): ?array
+    {
+        $stmt = Database::connection()->prepare(
+            'SELECT po.*, s.name AS supplier_name,' . self::AGREGADOS . '
+               FROM purchase_orders po
+               LEFT JOIN suppliers s ON s.id = po.supplier_id
+              WHERE po.id = ? AND po.business_id = ?'
+        );
+        $stmt->execute([$id, $businessId]);
+        $row = $stmt->fetch();
+        return $row ? self::decorar($row) : null;
+    }
+
+    /**
+     * Edita el ENCABEZADO de un pedido y propaga a sus piezas lo que les corresponde.
+     *
+     * QUÉ NO SE PUEDE EDITAR, Y POR QUÉ
+     * La moneda y el tipo de cambio quedan fijos. El costo de cada pieza se guardó ya
+     * convertido a pesos y REDONDEADO en el momento de la captura; el valor original
+     * en dólares no está almacenado en ningún lado. Cambiar el tipo de cambio
+     * obligaría a reconstruirlo dividiendo, y el redondeo hace que esa división no
+     * devuelva el número que se capturó. Es preferible un dato honesto y fijo a uno
+     * recalculado y falso.
+     *
+     * CÓMO SE PROPAGAN LAS FECHAS Y EL PROVEEDOR
+     * Cada pieza guarda su propia copia de la fecha de compra, la de llegada y el
+     * proveedor. Solo se actualizan las piezas que TODAVÍA tienen el valor viejo del
+     * encabezado. Es la única regla que respeta las dos intenciones posibles:
+     *
+     *   · La pieza nunca se tocó individualmente → heredó el valor del encabezado y
+     *     debe seguir heredándolo. Si no, corregir la fecha del pedido no cambiaría
+     *     nada visible y quedarían dos verdades sobre el mismo hecho.
+     *   · Alguien ya le puso otra fecha a esa pieza (por ejemplo con la llegada por
+     *     lote, porque llegó en un segundo envío) → esa decisión es más específica
+     *     que el encabezado y no se pisa.
+     */
+    public static function updateHeader(int $businessId, int $actorUserId, int $id, array $data): array
+    {
+        $pdo = Database::connection();
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare('SELECT * FROM purchase_orders WHERE id = ? AND business_id = ? FOR UPDATE');
+            $stmt->execute([$id, $businessId]);
+            $antes = $stmt->fetch();
+            if (!$antes) {
+                throw new \InvalidArgumentException('Ese pedido no existe en este negocio.');
+            }
+
+            $sets = [];
+            $params = [];
+
+            // --- Número de pedido ---
+            if (array_key_exists('order_number', $data)) {
+                $num = (int)preg_replace('/[^0-9]/', '', (string)$data['order_number']);
+                if ($num <= 0) {
+                    throw new \InvalidArgumentException('El número de pedido debe ser mayor que cero.');
+                }
+                if ($num !== (int)$antes['order_number']) {
+                    $dup = $pdo->prepare(
+                        'SELECT id FROM purchase_orders WHERE business_id = ? AND order_number = ? AND id <> ?'
+                    );
+                    $dup->execute([$businessId, $num, $id]);
+                    if ($dup->fetchColumn() !== false) {
+                        // Se revisa antes de escribir para dar un mensaje con el número
+                        // en vez de dejar salir la violación de la clave única.
+                        throw new \InvalidArgumentException("Ya existe el pedido #{$num} en este negocio.");
+                    }
+                    $sets[] = 'order_number = ?';
+                    $params[] = $num;
+                }
+            }
+
+            // --- Proveedor ---
+            $proveedorNuevo = null;
+            if (array_key_exists('supplier', $data)) {
+                $proveedorNuevo = Supplier::resolveOrCreate($businessId, $actorUserId, (string)$data['supplier']);
+                $sets[] = 'supplier_id = ?';
+                $params[] = $proveedorNuevo;
+            }
+
+            // --- Fechas y notas ---
+            foreach (['purchase_date', 'arrival_date'] as $campo) {
+                if (array_key_exists($campo, $data)) {
+                    $sets[] = "{$campo} = ?";
+                    $params[] = ($data[$campo] ?? '') !== '' ? $data[$campo] : null;
+                }
+            }
+            if (array_key_exists('notes', $data)) {
+                $sets[] = 'notes = ?';
+                $params[] = trim((string)$data['notes']) !== '' ? trim((string)$data['notes']) : null;
+            }
+
+            // --- Envío: se reparte otra vez entre las piezas ---
+            $repartir = array_key_exists('shipping_total', $data);
+            $mxn = 0.0;
+            if ($repartir) {
+                $original = (float)$data['shipping_total'];
+                if ($original < 0) {
+                    throw new \InvalidArgumentException('El envío no puede ser negativo.');
+                }
+                $mxn = PricingService::toMxn($original, $antes['currency'], (float)$antes['exchange_rate']);
+                $sets[] = 'shipping_total_original = ?';
+                $params[] = $original;
+                $sets[] = 'shipping_total_mxn = ?';
+                $params[] = $mxn;
+            }
+
+            if ($sets) {
+                $params[] = $id;
+                $params[] = $businessId;
+                $pdo->prepare('UPDATE purchase_orders SET ' . implode(', ', $sets)
+                    . ' WHERE id = ? AND business_id = ?')->execute($params);
+            }
+
+            // --- Propagación a las piezas ---
+            $piezasTocadas = 0;
+
+            foreach (['purchase_date', 'arrival_date'] as $campo) {
+                if (!array_key_exists($campo, $data)) {
+                    continue;
+                }
+                $valor = ($data[$campo] ?? '') !== '' ? $data[$campo] : null;
+                if ($valor === $antes[$campo]) {
+                    continue;
+                }
+                // El operador <=> de MariaDB compara tratando NULL como un valor más,
+                // así que una pieza con la fecha vacía también cuenta como "todavía
+                // tiene la vieja" cuando el encabezado tampoco la tenía.
+                $up = $pdo->prepare(
+                    "UPDATE inventory_items SET {$campo} = ?
+                      WHERE purchase_order_id = ? AND business_id = ? AND {$campo} <=> ?"
+                );
+                $up->execute([$valor, $id, $businessId, $antes[$campo]]);
+                $piezasTocadas += $up->rowCount();
+            }
+
+            if (array_key_exists('supplier', $data) && $proveedorNuevo !== (int)$antes['supplier_id']) {
+                $up = $pdo->prepare(
+                    'UPDATE inventory_items SET supplier_id = ?
+                      WHERE purchase_order_id = ? AND business_id = ? AND supplier_id <=> ?'
+                );
+                $up->execute([$proveedorNuevo, $id, $businessId, $antes['supplier_id']]);
+                $piezasTocadas += $up->rowCount();
+            }
+
+            // --- Reparto del envío ---
+            // Va al final y en orden estable (por id) para que dos ejecuciones con el
+            // mismo total den exactamente el mismo reparto, centavo por centavo.
+            $repartidas = 0;
+            if ($repartir) {
+                $ids = $pdo->prepare(
+                    'SELECT id FROM inventory_items WHERE purchase_order_id = ? AND business_id = ? ORDER BY id'
+                );
+                $ids->execute([$id, $businessId]);
+                $itemIds = $ids->fetchAll(\PDO::FETCH_COLUMN);
+
+                $porPieza = self::splitShipping($mxn, count($itemIds));
+                $setEnvio = $pdo->prepare('UPDATE inventory_items SET shipping_cost = ? WHERE id = ? AND business_id = ?');
+                foreach ($itemIds as $i => $itemId) {
+                    $setEnvio->execute([$porPieza[$i], $itemId, $businessId]);
+                }
+                $repartidas = count($itemIds);
+            }
+
+            $pdo->commit();
+            return [
+                'piezas_actualizadas' => $piezasTocadas,
+                'envio_repartido_en' => $repartidas,
+            ];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Borra un pedido Y sus piezas, o se niega explicando por qué.
+     *
+     * SE NIEGA SI YA VENDISTE ALGO DE ESE PEDIDO
+     * Borrar una pieza vendida no borra un error de captura: borra una venta que sí
+     * ocurrió. Las ganancias del mes cambiarían solas y el histórico quedaría
+     * mintiendo, sin forma de reconstruirlo. En ese caso queda editar el encabezado,
+     * o anular la venta primero si de verdad nunca ocurrió.
+     *
+     * SE BORRAN LAS PIEZAS EXPLÍCITAMENTE, NO POR LA LLAVE FORÁNEA
+     * fk_items_po es ON DELETE SET NULL: un DELETE del pedido a secas dejaría las
+     * piezas en el inventario con purchase_order_id en NULL — presentes, contadas en
+     * el stock, y sin ningún pedido al que pertenecer. Es exactamente la clase de
+     * huérfano que ya costó 739 piezas en la importación. El DELETE de las piezas va
+     * primero y a propósito, dentro de la misma transacción.
+     */
+    public static function deleteWithItems(int $businessId, int $id): array
+    {
+        $pdo = Database::connection();
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT order_number FROM purchase_orders WHERE id = ? AND business_id = ? FOR UPDATE'
+            );
+            $stmt->execute([$id, $businessId]);
+            $numero = $stmt->fetchColumn();
+            if ($numero === false) {
+                throw new \InvalidArgumentException('Ese pedido no existe en este negocio.');
+            }
+
+            $c = $pdo->prepare(
+                'SELECT COUNT(*) FROM inventory_items
+                  WHERE purchase_order_id = ? AND business_id = ? AND sale_date IS NOT NULL'
+            );
+            $c->execute([$id, $businessId]);
+            $vendidas = (int)$c->fetchColumn();
+            if ($vendidas > 0) {
+                $pieza = $vendidas === 1 ? 'pieza ya vendida' : 'piezas ya vendidas';
+                throw new \InvalidArgumentException(
+                    "El pedido #{$numero} tiene {$vendidas} {$pieza}. Borrarlo destruiría esas ventas: "
+                    . 'anula la venta primero, o edita el pedido en vez de borrarlo.'
+                );
+            }
+
+            $delItems = $pdo->prepare('DELETE FROM inventory_items WHERE purchase_order_id = ? AND business_id = ?');
+            $delItems->execute([$id, $businessId]);
+            $borradas = $delItems->rowCount();
+
+            $pdo->prepare('DELETE FROM purchase_orders WHERE id = ? AND business_id = ?')->execute([$id, $businessId]);
+
+            $pdo->commit();
+            return ['order_number' => (int)$numero, 'piezas_borradas' => $borradas];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
 }

@@ -61,6 +61,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
     <nav class="sb-nav" id="sb-nav">
       <div class="sb-indicator" id="sb-indicator"></div>
       <button class="sb-item active" data-tab="entradas" data-label="Entradas" onclick="switchTab('entradas')"><?= icon('inbox') ?><span class="lbl">Entradas</span></button>
+      <button class="sb-item" data-tab="pedidos" data-label="Pedidos" onclick="switchTab('pedidos')"><?= icon('building') ?><span class="lbl">Pedidos</span></button>
       <button class="sb-item" data-tab="salidas" data-label="Salidas" onclick="switchTab('salidas')"><?= icon('outbox') ?><span class="lbl">Salidas</span></button>
       <button class="sb-item" data-tab="inventario" data-label="Inventario" onclick="switchTab('inventario')"><?= icon('package') ?><span class="lbl">Inventario</span></button>
       <button class="sb-item" data-tab="reportes" data-label="Reportes" onclick="switchTab('reportes')"><?= icon('chart') ?><span class="lbl">Reportes</span></button>
@@ -128,6 +129,16 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
           <button class="btn ghost" onclick="Entradas.reset()">Limpiar</button>
         </div>
       </section>
+      <section id="pedidos" class="view">
+        <div class="kpis" id="kpis-ped"></div>
+        <div class="toolbar">
+          <input type="search" id="search-ped" placeholder="Buscar por número o proveedor..." oninput="Pedidos.render()">
+        </div>
+        <div class="tablecard"><div class="tscroll"><table>
+          <thead><tr id="head-ped"></tr></thead><tbody id="body-ped"></tbody>
+        </table></div></div>
+      </section>
+
       <section id="salidas" class="view">
         <div class="kpis" id="kpis-sal"></div>
         <div class="toolbar">
@@ -388,6 +399,32 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
     </div>
   </div>
 </div>
+<div class="modal-bg" id="ped-bg">
+  <div class="modal" style="max-width:560px">
+    <h2><span><?= icon('edit', 17) ?> <span id="ped-titulo">Corregir pedido</span></span><span class="x" onclick="Pedidos.cerrarEdicion()"><?= icon('x', 18) ?></span></h2>
+    <div class="mbody">
+      <div class="grid2">
+        <div class="field"><label># Pedido</label><input id="ped-numero" type="number" min="1"></div>
+        <div class="field"><label>Proveedor</label><input id="ped-proveedor" type="text" list="dl-proveedor"></div>
+        <div class="field"><label>Fecha de compra</label><input id="ped-compra" type="date"></div>
+        <div class="field"><label>Fecha de llegada</label><input id="ped-llegada" type="date"></div>
+        <div class="field"><label>Envío total del pedido</label><input id="ped-envio" type="number" step="0.01"></div>
+        <!-- La moneda se muestra pero no se edita: el costo de cada pieza se guardó ya
+             convertido y redondeado, así que el monto original no se puede reconstruir
+             sin inventarlo. Se dice aquí en vez de dejar un campo que no responde. -->
+        <div class="field"><label>Moneda <span class="hint">(no se puede cambiar después de capturar)</span></label>
+          <div id="ped-moneda" class="muted" style="padding:9px 0">—</div></div>
+      </div>
+      <div class="field" style="margin-top:4px"><label>Notas</label><input id="ped-notas" type="text" placeholder="Opcional"></div>
+      <p id="ped-aviso" class="muted" style="margin-top:12px"></p>
+    </div>
+    <div class="mfoot">
+      <button class="btn ghost" onclick="Pedidos.cerrarEdicion()">Cancelar</button>
+      <button class="btn primary" onclick="Pedidos.guardar()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="bulk-bg">
   <div class="modal" style="max-width:560px">
     <h2><span><?= icon('dollar', 17) ?> Vender varias de golpe</span><span class="x" onclick="Inventario.closeBulk()"><?= icon('x', 18) ?></span></h2>
@@ -417,6 +454,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
 <script src="<?= esc(asset('assets/js/attributes.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/fields.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/entradas.js')) ?>"></script>
+<script src="<?= esc(asset('assets/js/pedidos.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/salidas.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/inventario.js')) ?>"></script>
 <script src="<?= esc(asset('assets/js/reportes.js')) ?>"></script>

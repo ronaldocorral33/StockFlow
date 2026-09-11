@@ -7,6 +7,7 @@ function switchTab(tab) {
   if (title && btn) title.textContent = btn.dataset.label;
   moveSidebarIndicator(btn);
   if (tab === 'inventario') Inventario.render();
+  if (tab === 'pedidos') Pedidos.render();
   if (tab === 'salidas') Salidas.render();
   if (tab === 'reportes') Reportes.render();
 }
