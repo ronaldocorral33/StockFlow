@@ -167,7 +167,11 @@ const Fields = (() => {
       case 'select': {
         const opts = (field.options || []).map(o =>
           `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
-        return `<select ${base}><option value="">—</option>${opts}</select>`;
+        // La lista termina SIEMPRE con la salida de emergencia. El momento en que
+        // descubres que falta "3XL" es capturando, no configurando: sin esto hay que
+        // salir a "Campos y vistas", cambiar la lista, y volver perdiendo lo escrito.
+        return `<select ${base}><option value="">—</option>${opts}` +
+               `<option value="${NUEVA_OPCION}">+ Agregar opción…</option></select>`;
       }
       case 'number':
         return `<input type="number" step="0.01" ${base} value="${esc(v)}">`;
@@ -266,6 +270,84 @@ const Fields = (() => {
       toast(e && e.message ? e.message : 'No se pudo guardar el cambio');
     }
   }
+
+  // ---------------------------------------------------------------
+  // Agregar una opción sin salir de la captura
+  // ---------------------------------------------------------------
+
+  /**
+   * Valor centinela de la opción "+ Agregar opción…".
+   *
+   * Lleva guiones bajos dobles para que no pueda chocar con un valor real: el
+   * servidor recorta los valores y rechaza los vacíos, pero nada impide que alguien
+   * tenga una talla llamada "nueva". "__nueva_opcion__" no es una talla de nada.
+   */
+  const NUEVA_OPCION = '__nueva_opcion__';
+
+  /**
+   * Un solo listener en document, en vez de un onchange por select.
+   *
+   * Dos razones. Los selects se dibujan con innerHTML y se vuelven a dibujar cada vez
+   * que cambia un grupo, así que un listener por elemento habría que reinstalarlo
+   * constantemente. Y entradas.js ya le pasa SUS propios onchange a input() — un
+   * atributo onchange mío los pisaría, porque el HTML se queda con el primero.
+   */
+  document.addEventListener('change', async (ev) => {
+    const sel = ev.target;
+    if (!sel || sel.tagName !== 'SELECT' || sel.value !== NUEVA_OPCION) return;
+
+    const clave = sel.dataset.fk;
+    const campo = byKey(clave);
+    // El valor que estaba puesto ANTES de elegir "+ Agregar opción…". Si el usuario
+    // cancela, la captura debe quedar exactamente como estaba.
+    const previo = sel.dataset.prev || '';
+
+    const valor = prompt(`Nueva opción para "${campo ? campo.label : clave}":`, '');
+    sel.value = previo;
+
+    if (valor === null || valor.trim() === '') return;
+
+    try {
+      const r = await Api.post('attributes.php?action=add-option', { field_key: clave, value: valor.trim() });
+      // Se actualiza el registro en memoria y TODOS los selects de ese campo que ya
+      // estén dibujados, en vez de volver a renderizar la pantalla: un re-render en
+      // medio de la captura borraría lo que el usuario lleva escrito.
+      if (campo) campo.options = r.options;
+      document.querySelectorAll(`select[data-fk="${CSS.escape(clave)}"]`).forEach(otro => {
+        const centinela = otro.querySelector(`option[value="${NUEVA_OPCION}"]`);
+        // Se comparan los valores en JavaScript en vez de con un selector de
+        // atributo: una opción puede contener comillas o empezar con un dígito, y
+        // escaparla para CSS es una fuente de errores que aquí no hace falta correr.
+        const yaDibujadas = new Set(Array.from(otro.options).map(o => o.value));
+        r.options.forEach(o => {
+          if (!yaDibujadas.has(o)) {
+            const op = document.createElement('option');
+            op.value = o; op.textContent = o;
+            otro.insertBefore(op, centinela);
+          }
+        });
+      });
+      // El valor que el servidor devolvió, no el que se escribió: si ya existía
+      // "3XL" y se escribió "3xl", queda seleccionado el que ya estaba.
+      const yaEstaba = r.options.find(o => o.toLowerCase() === valor.trim().toLowerCase());
+      sel.value = yaEstaba || previo;
+      sel.dataset.prev = sel.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      toast(`"${sel.value}" agregada a ${campo ? campo.label : clave}`);
+    } catch (e) {
+      // Un rol que solo captura no puede configurar campos: el servidor lo explica
+      // y se muestra tal cual, sin perder nada de lo capturado.
+      toast(e && e.message ? e.message : 'No se pudo agregar la opción');
+    }
+  });
+
+  // Se recuerda el valor anterior de cada select para poder revertir una cancelación.
+  document.addEventListener('focusin', (ev) => {
+    const sel = ev.target;
+    if (sel && sel.tagName === 'SELECT' && sel.value !== NUEVA_OPCION) {
+      sel.dataset.prev = sel.value;
+    }
+  });
 
   return {
     load, all, columns, cell, headerCell, variantIsColumn,

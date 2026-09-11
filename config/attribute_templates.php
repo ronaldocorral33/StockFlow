@@ -15,7 +15,7 @@ return [
             ['field_key' => 'deporte', 'label' => 'Deporte', 'field_type' => 'text', 'show_in_table' => true],
             ['field_key' => 'version', 'label' => 'Versión', 'field_type' => 'select', 'options' => ['Local', 'Visita', 'Tercera', 'Retro', 'Mujer'], 'show_in_table' => true],
             ['field_key' => 'temporada', 'label' => 'Temporada', 'field_type' => 'text', 'show_in_table' => false],
-            ['field_key' => 'talla', 'label' => 'Talla', 'field_type' => 'select', 'options' => ['XS', 'S', 'M', 'L', 'XL', '2XL'], 'show_in_table' => true],
+            ['field_key' => 'talla', 'label' => 'Talla', 'field_type' => 'select', 'options' => ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'], 'show_in_table' => true],
         ],
     ],
     'ropa_calzado' => [

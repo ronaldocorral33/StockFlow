@@ -545,6 +545,84 @@ class AttributeDefinition
     }
 
     /**
+     * Agrega UN valor a la lista de opciones de un campo tipo lista.
+     *
+     * POR QUÉ EXISTE, SI configure() YA SABE ESCRIBIR options
+     * Porque hacen cosas distintas. configure() REEMPLAZA la lista completa: es lo
+     * correcto para la pantalla "Campos y vistas", donde el usuario está viendo y
+     * editando esa lista entera. Este método AGREGA: es lo correcto para la pantalla
+     * de captura, donde el usuario descubre que falta "3XL" en medio de registrar un
+     * pedido y no está viendo la lista.
+     *
+     * Si la captura reusara configure(), tendría que mandar la lista completa desde
+     * su copia del registro — y esa copia se cargó al abrir la pantalla. Cualquier
+     * opción agregada después (en otra pestaña, o por un compañero) se perdería al
+     * guardar. Agregar del lado del servidor elimina esa clase de error por completo.
+     *
+     * SELECT ... FOR UPDATE porque esto es leer-modificar-escribir: dos personas
+     * capturando a la vez podrían agregar dos tallas y quedarse con una sola.
+     *
+     * @return array La lista de opciones ya actualizada.
+     */
+    public static function addOption(int $businessId, string $fieldKey, string $value): array
+    {
+        $value = trim($value);
+        if ($value === '') {
+            throw new \InvalidArgumentException('La opción no puede estar vacía.');
+        }
+        if (mb_strlen($value) > 60) {
+            throw new \InvalidArgumentException('La opción es demasiado larga (máximo 60 caracteres).');
+        }
+
+        $pdo = Database::connection();
+        $pdo->beginTransaction();
+        try {
+            $stmt = $pdo->prepare(
+                'SELECT id, field_type, options FROM attribute_definitions
+                  WHERE business_id = ? AND field_key = ? AND archived_at IS NULL
+                  FOR UPDATE'
+            );
+            $stmt->execute([$businessId, $fieldKey]);
+            $campo = $stmt->fetch();
+
+            if (!$campo) {
+                throw new \InvalidArgumentException('El campo no existe en este negocio.');
+            }
+            if ($campo['field_type'] !== 'select') {
+                throw new \InvalidArgumentException('Ese campo no es una lista de opciones.');
+            }
+
+            $opciones = $campo['options'] ? json_decode($campo['options'], true) : [];
+            if (!is_array($opciones)) {
+                $opciones = [];
+            }
+
+            // Sin distinguir mayúsculas: "3xl" y "3XL" son la MISMA talla, y tenerlas
+            // como dos opciones distintas parte los reportes en dos filas que el
+            // usuario lee como una. Si ya existe, se devuelve la lista tal cual y la
+            // captura se queda con el valor que ya estaba escrito.
+            foreach ($opciones as $existente) {
+                if (mb_strtolower((string)$existente) === mb_strtolower($value)) {
+                    $pdo->commit();
+                    return array_values($opciones);
+                }
+            }
+
+            $opciones[] = $value;
+            $opciones = array_values($opciones);
+
+            $pdo->prepare('UPDATE attribute_definitions SET options = ? WHERE id = ? AND business_id = ?')
+                ->execute([json_encode($opciones, JSON_UNESCAPED_UNICODE), $campo['id'], $businessId]);
+
+            $pdo->commit();
+            return $opciones;
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * Actualiza la configuración de un campo desde la pantalla "Campos y vistas".
      *
      * Solo toca lo que el usuario puede cambiar. Deliberadamente NO acepta storage,

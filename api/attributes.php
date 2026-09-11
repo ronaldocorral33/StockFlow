@@ -95,6 +95,29 @@ if ($method === 'POST' && $action === 'visibility') {
     json_response(['ok' => true]);
 }
 
+if ($method === 'POST' && $action === 'add-option') {
+    // Agregar una opción es configurar un campo del negocio: mismo permiso que
+    // cualquier otro cambio del registro. Quien solo puede capturar recibe un 403
+    // con su explicación, y la pantalla se lo dice sin perder lo capturado.
+    Authz::require('update', 'attribute_definitions');
+    $body = json_body();
+
+    // Llega la CLAVE del campo, no su id ni un nombre de columna: el modelo la
+    // resuelve contra el registro de ESTE negocio, así que un id ajeno no existe
+    // como posibilidad.
+    $clave = (string)($body['field_key'] ?? '');
+    if ($clave === '') {
+        json_response(['error' => 'Falta la clave del campo'], 422);
+    }
+
+    try {
+        $opciones = AttributeDefinition::addOption($businessId, $clave, (string)($body['value'] ?? ''));
+    } catch (\InvalidArgumentException $e) {
+        json_response(['error' => $e->getMessage()], 422);
+    }
+    json_response(['ok' => true, 'options' => $opciones]);
+}
+
 if ($method === 'POST' && $action === 'reorder-context') {
     Authz::require('update', 'attribute_definitions');
     $body = json_body();
