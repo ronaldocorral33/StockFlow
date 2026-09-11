@@ -190,6 +190,32 @@ Inventario y Reportes.
 
 ---
 
+## Regenerar el volcado
+
+Cuando vuelvas a desplegar, no uses `mysqldump` a secas:
+
+```bash
+php scripts/generar_volcado_para_despliegue.php
+```
+
+Resuelve dos cosas que `mysqldump` hace mal para este caso:
+
+**Columnas generadas.** `inventory_items.total_cost` y `.profit` las calcula la base
+sola. El mysqldump de MariaDB las incluye en el INSERT igual (incluso con
+`--complete-insert`); tu XAMPP lo tolera, un servidor más nuevo responde:
+
+```
+#3105 - The value specified for generated column 'total_cost' is not allowed
+```
+
+El script las detecta desde `information_schema` y las salta. No se pierde el dato:
+la base lo recalcula al insertar, y quedó verificado que da exactamente lo mismo en
+las 1599 filas.
+
+**Orden de las llaves foráneas.** mysqldump reactiva `FOREIGN_KEY_CHECKS` al final de
+la estructura, o sea justo antes de los datos, y el primer INSERT falla porque su
+negocio todavía no existe. El script mueve esa restauración al final del archivo.
+
 ## Notas
 
 **Rutas:** el código calcula su propia URL base desde `DOCUMENT_ROOT`, así que funciona
