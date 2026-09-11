@@ -1,8 +1,24 @@
 <?php
 define('APP_BOOTSTRAP', true);
 
+/**
+ * Errores: se REGISTRAN siempre, se MUESTRAN solo en desarrollo.
+ *
+ * Antes esto era display_errors=1 fijo. En local no molesta; en un servidor público
+ * es una fuga: un error de PDO imprime en pantalla la consulta, los nombres de las
+ * tablas y la ruta absoluta del proyecto en el disco del servidor. Eso le regala a
+ * cualquier visitante el mapa de la aplicación.
+ *
+ * El valor por omisión es el SEGURO. Si alguien despliega y olvida configurar el
+ * entorno, se calla; para verlos en local hay que pedirlo explícitamente con
+ * APP_ENV=development. Un olvido no puede terminar en exposición.
+ *
+ * Se apaga aquí arriba, antes de cargar nada, para que un fallo del propio arranque
+ * (autoload, .env ilegible) tampoco imprima la ruta del servidor.
+ */
 error_reporting(E_ALL);
-ini_set('display_errors', '1'); // proyecto de clase / desarrollo local
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 
 // --- Base URL del proyecto (la carpeta puede tener espacios: "Control De Inventario") ---
 $documentRoot = str_replace('\\', '/', realpath($_SERVER['DOCUMENT_ROOT']));
@@ -39,6 +55,11 @@ require __DIR__ . '/icons.php';
 
 $config = require dirname(__DIR__, 2) . '/config/config.php';
 define('APP_CONFIG', $config);
+
+// Ya se sabe en qué entorno corre: solo en desarrollo se vuelven a encender.
+if (!empty($config['app']['debug'])) {
+    ini_set('display_errors', '1');
+}
 
 session_name($config['session']['name']);
 $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')

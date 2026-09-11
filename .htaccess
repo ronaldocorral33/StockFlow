@@ -12,6 +12,24 @@ Options -Indexes
     </IfModule>
 </FilesMatch>
 
+# Archivos que no son parte de la aplicación web pero que pueden acabar subidos por
+# accidente. Sin esto, laticweb.com/sql/schema.sql entrega el esquema completo de la
+# base de datos a cualquiera que adivine la ruta, y un .xlsx de respaldo entrega los
+# datos del negocio. Options -Indexes impide LISTAR una carpeta, no descargar un
+# archivo cuya ruta se conoce — son dos protecciones distintas.
+#
+# Los .php de src/ y config/ ya se defienden solos (abortan con 403 si no los cargó
+# el bootstrap), así que no necesitan regla aquí.
+<FilesMatch "\.(sql|md|log|xlsx|xls|csv|bak|ini|sh|yml|json)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
 <IfModule mod_authz_core.c>
     Require all granted
 </IfModule>
