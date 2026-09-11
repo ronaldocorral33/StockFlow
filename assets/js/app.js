@@ -1,6 +1,21 @@
 /* Núcleo de la app: cambio de tabs, indicador de sidebar, KPIs animados, toast. */
+/**
+ * Cambia de pestaña y deja la URL apuntando a ella (#pedidos, #reportes...).
+ *
+ * POR QUÉ LA URL
+ * Sin esto, las cinco pantallas comparten una sola dirección: no se puede enlazar a
+ * "Reportes", recargar deja al usuario en Entradas, y el botón Atrás del navegador
+ * sale de la aplicación en vez de regresar a la pestaña anterior.
+ *
+ * Se usa replaceState y no una entrada nueva de historial: cambiar de pestaña es
+ * mirar otra cosa, no navegar. Si cada clic agregara una entrada, salir de la
+ * aplicación con Atrás requeriría deshacer todos los clics previos.
+ */
 function switchTab(tab) {
   const btn = document.querySelector(`.sb-item[data-tab="${tab}"]`);
+  if (btn && location.hash.slice(1) !== tab) {
+    history.replaceState(null, '', '#' + tab);
+  }
   document.querySelectorAll('.sb-item[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === tab));
   const title = document.getElementById('page-title');
@@ -69,6 +84,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   await Attributes.load();
   Entradas.init();
   await Inventario.render();
-  moveSidebarIndicator(document.querySelector('.sb-item.active'));
+
+  // Si la dirección trae una pestaña (#pedidos), se abre esa. Un hash que no
+  // corresponde a ninguna pestaña se ignora y queda la de siempre.
+  const pedida = location.hash.slice(1);
+  if (pedida && document.querySelector(`.sb-item[data-tab="${pedida}"]`)) {
+    switchTab(pedida);
+  } else {
+    moveSidebarIndicator(document.querySelector('.sb-item.active'));
+  }
   toast('Listo');
 });
