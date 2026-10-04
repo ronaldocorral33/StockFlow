@@ -38,7 +38,7 @@ if ($method === 'GET') {
         // Filtros por campo del registro. Llegan como attr[clave]=valor; el modelo
         // valida cada clave contra el registro, así que aquí no hace falta filtrar.
         'attrs' => is_array($_GET['attr'] ?? null) ? $_GET['attr'] : [],
-        'sort' => $_GET['sort'] ?? 'created_at',
+        'sort' => $_GET['sort'] ?? 'order_number',
         'dir' => $_GET['dir'] ?? 'desc',
     ];
     json_response(['items' => InventoryItem::list($businessId, $filters)]);

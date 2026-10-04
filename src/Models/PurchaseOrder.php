@@ -440,6 +440,164 @@ class PurchaseOrder
     }
 
     /**
+     * Agrega una pieza a un pedido que ya existe.
+     *
+     * No se usa InventoryItem::create() porque una pieza agregada desde aquí debe
+     * heredar el proveedor y las fechas del pedido, y porque el envío completo se
+     * tiene que volver a repartir entre todas las piezas en la misma transacción.
+     */
+    public static function addItem(int $businessId, int $actorUserId, int $id, array $item): array
+    {
+        $name = trim((string)($item['name'] ?? ''));
+        if ($name === '') {
+            throw new \InvalidArgumentException('El producto necesita un nombre.');
+        }
+
+        $pdo = Database::connection();
+        $pdo->beginTransaction();
+        try {
+            $orderStmt = $pdo->prepare('SELECT * FROM purchase_orders WHERE id = ? AND business_id = ? FOR UPDATE');
+            $orderStmt->execute([$id, $businessId]);
+            $order = $orderStmt->fetch();
+            if (!$order) {
+                throw new \InvalidArgumentException('Ese pedido no existe en este negocio.');
+            }
+
+            $factor = $order['currency'] === 'USD' ? (float)$order['exchange_rate'] : 1.0;
+            $number = static function ($value) use ($factor): ?float {
+                if ($value === null || $value === '') return null;
+                if (!is_numeric($value)) throw new \InvalidArgumentException('Los precios deben ser números válidos.');
+                return round((float)$value * $factor);
+            };
+            $attributes = !empty($item['attributes']) && is_array($item['attributes']) ? json_encode($item['attributes']) : null;
+            $insert = $pdo->prepare(
+                'INSERT INTO inventory_items
+                 (business_id, user_id, purchase_order_id, supplier_id, name, variant_label, category, subcategory,
+                  attributes, cost, shipping_cost, sale_price, purchase_date, arrival_date)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)'
+            );
+            $insert->execute([
+                $businessId, $actorUserId, $id, $order['supplier_id'], $name,
+                ($item['variant_label'] ?? '') ?: null, ($item['category'] ?? '') ?: null,
+                ($item['subcategory'] ?? '') ?: null, $attributes, $number($item['cost'] ?? null),
+                $number($item['sale_price'] ?? null), $order['purchase_date'], $order['arrival_date'],
+            ]);
+            $newItemId = (int)$pdo->lastInsertId();
+
+            self::redistributeShippingLocked($pdo, $businessId, $id, (float)$order['shipping_total_mxn']);
+            self::refreshItemCountLocked($pdo, $businessId, $id);
+            $pdo->commit();
+            return ['item_id' => $newItemId];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Agrega varias piezas atómicamente desde la captura completa de Entradas. */
+    public static function appendItems(int $businessId, int $actorUserId, int $id, array $items): array
+    {
+        $items = array_values($items);
+        if (!$items) throw new \InvalidArgumentException('Agrega al menos un producto al pedido.');
+        // Validar todo antes de insertar la primera pieza: un precio inválido no debe
+        // dejar medio grupo registrado.
+        foreach ($items as $item) {
+            if (trim((string)($item['name'] ?? '')) === '') throw new \InvalidArgumentException('Cada producto necesita un nombre.');
+            foreach (['cost', 'sale_price'] as $field) {
+                if (isset($item[$field]) && $item[$field] !== '' && !is_numeric($item[$field])) {
+                    throw new \InvalidArgumentException('Los precios deben ser números válidos.');
+                }
+            }
+        }
+
+        $pdo = Database::connection();
+        $pdo->beginTransaction();
+        try {
+            $orderStmt = $pdo->prepare('SELECT * FROM purchase_orders WHERE id = ? AND business_id = ? FOR UPDATE');
+            $orderStmt->execute([$id, $businessId]);
+            $order = $orderStmt->fetch();
+            if (!$order) throw new \InvalidArgumentException('Ese pedido no existe en este negocio.');
+
+            $factor = $order['currency'] === 'USD' ? (float)$order['exchange_rate'] : 1.0;
+            $insert = $pdo->prepare(
+                'INSERT INTO inventory_items
+                 (business_id, user_id, purchase_order_id, supplier_id, name, variant_label, category, subcategory,
+                  attributes, cost, shipping_cost, sale_price, purchase_date, arrival_date)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)'
+            );
+            $ids = [];
+            foreach ($items as $item) {
+                $toMxn = static fn($v): ?float => ($v === null || $v === '') ? null : round((float)$v * $factor);
+                $attrs = !empty($item['attributes']) && is_array($item['attributes']) ? json_encode($item['attributes']) : null;
+                $insert->execute([$businessId, $actorUserId, $id, $order['supplier_id'], trim((string)$item['name']),
+                    ($item['variant_label'] ?? '') ?: null, ($item['category'] ?? '') ?: null, ($item['subcategory'] ?? '') ?: null,
+                    $attrs, $toMxn($item['cost'] ?? null), $toMxn($item['sale_price'] ?? null),
+                    $order['purchase_date'], $order['arrival_date']]);
+                $ids[] = (int)$pdo->lastInsertId();
+            }
+            self::redistributeShippingLocked($pdo, $businessId, $id, (float)$order['shipping_total_mxn']);
+            self::refreshItemCountLocked($pdo, $businessId, $id);
+            $pdo->commit();
+            return ['item_ids' => $ids];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Quita una pieza no vendida de un pedido, conservando siempre un pedido válido. */
+    public static function removeItem(int $businessId, int $orderId, int $itemId): void
+    {
+        $pdo = Database::connection();
+        $pdo->beginTransaction();
+        try {
+            $orderStmt = $pdo->prepare('SELECT shipping_total_mxn FROM purchase_orders WHERE id = ? AND business_id = ? FOR UPDATE');
+            $orderStmt->execute([$orderId, $businessId]);
+            $order = $orderStmt->fetch();
+            if (!$order) throw new \InvalidArgumentException('Ese pedido no existe en este negocio.');
+
+            $itemStmt = $pdo->prepare('SELECT sale_date FROM inventory_items WHERE id = ? AND purchase_order_id = ? AND business_id = ? FOR UPDATE');
+            $itemStmt->execute([$itemId, $orderId, $businessId]);
+            $item = $itemStmt->fetch();
+            if (!$item) throw new \InvalidArgumentException('Ese producto no pertenece a este pedido.');
+            if ($item['sale_date'] !== null) throw new \InvalidArgumentException('No se puede quitar un producto que ya tiene una venta registrada.');
+
+            $count = $pdo->prepare('SELECT COUNT(*) FROM inventory_items WHERE purchase_order_id = ? AND business_id = ?');
+            $count->execute([$orderId, $businessId]);
+            if ((int)$count->fetchColumn() <= 1) {
+                throw new \InvalidArgumentException('No puedes dejar el pedido sin productos. Si fue un error completo, borra el pedido.');
+            }
+            $pdo->prepare('DELETE FROM inventory_items WHERE id = ? AND purchase_order_id = ? AND business_id = ?')
+                ->execute([$itemId, $orderId, $businessId]);
+            self::redistributeShippingLocked($pdo, $businessId, $orderId, (float)$order['shipping_total_mxn']);
+            self::refreshItemCountLocked($pdo, $businessId, $orderId);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Reparte el envío entre las piezas actuales; el llamador ya tiene el pedido bloqueado. */
+    private static function redistributeShippingLocked(\PDO $pdo, int $businessId, int $orderId, float $shippingMxn): void
+    {
+        $ids = $pdo->prepare('SELECT id FROM inventory_items WHERE purchase_order_id = ? AND business_id = ? ORDER BY id');
+        $ids->execute([$orderId, $businessId]);
+        $itemIds = $ids->fetchAll(\PDO::FETCH_COLUMN);
+        $parts = self::splitShipping($shippingMxn, count($itemIds));
+        $set = $pdo->prepare('UPDATE inventory_items SET shipping_cost = ? WHERE id = ? AND business_id = ?');
+        foreach ($itemIds as $i => $itemId) $set->execute([$parts[$i], $itemId, $businessId]);
+    }
+
+    private static function refreshItemCountLocked(\PDO $pdo, int $businessId, int $orderId): void
+    {
+        $pdo->prepare(
+            'UPDATE purchase_orders po SET item_count = (SELECT COUNT(*) FROM inventory_items i WHERE i.purchase_order_id = po.id)
+             WHERE po.id = ? AND po.business_id = ?'
+        )->execute([$orderId, $businessId]);
+    }
+
+    /**
      * Borra un pedido Y sus piezas, o se niega explicando por qué.
      *
      * SE NIEGA SI YA VENDISTE ALGO DE ESE PEDIDO

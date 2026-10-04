@@ -120,6 +120,23 @@ test('importa usando el mapeo que el usuario confirmó', function () {
     assertSame('1500.00', (string)$porNombre['Anillo de oro']['cost']);
 });
 
+test('sincroniza un nombre usando solo el ID y el campo personalizado', function () {
+    $pieza = null;
+    foreach (InventoryItem::list(IM_BIZ) as $p) {
+        if ($p['name'] === 'Anillo de oro') { $pieza = $p; }
+    }
+    assertTrue($pieza !== null);
+
+    $r = IE::importRows(IM_BIZ, IM_USER, [
+        ['ID actual' => $pieza['id'], 'Nombre recuperado' => 'Lamine Yamal'],
+    ], IE::MODE_SYNC, false, ['ID actual' => 'id', 'Nombre recuperado' => 'nombre']);
+
+    assertSame(0, $r['inserted']);
+    assertSame(1, $r['updated']);
+    $actualizada = InventoryItem::find((int)$pieza['id'], IM_BIZ);
+    assertSame('Lamine Yamal', $actualizada['attributes']['nombre']);
+});
+
 test('una columna marcada como ignorar NO se guarda', function () {
     $filas = [['Nombre' => 'Pieza ignorada', 'Basura' => 'no debe guardarse']];
     $mapeo = ['Nombre' => 'name', 'Basura' => '__ignorar__'];

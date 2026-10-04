@@ -36,6 +36,7 @@ const Entradas = (() => {
   }
   let listo = false;
   let pegandoEn = null;   // gid del grupo que está pegando desde Excel
+  let pedidoExistente = null;
 
   /** Campos de captura, del registro. Los calculados no se escriben. */
   function campos() {
@@ -55,6 +56,63 @@ const Entradas = (() => {
     }
     render();
     renderKpis();
+    await cargarPedidos();
+  }
+
+  async function cargarPedidos() {
+    try {
+      const r = await Api.get('purchase_orders.php');
+      const sel = document.getElementById('p-pedido-select');
+      if (!sel) return;
+      const actual = pedidoExistente ? String(pedidoExistente.id) : '';
+      sel.innerHTML = '<option value="">Selecciona un pedido…</option>' + (r.orders || []).map(p =>
+        `<option value="${p.id}">#${esc(p.order_number)} · ${esc(p.supplier_name || 'Sin proveedor')} · ${p.piezas} pieza(s)</option>`).join('');
+      sel.value = actual;
+    } catch (e) { /* La captura nueva sigue funcionando aunque no cargue la lista. */ }
+  }
+
+  function bloquearEncabezado(bloquear) {
+    ['p-num', 'p-prov', 'p-fcompra', 'p-fllegada', 'p-moneda', 'p-envio', 'p-tc', 'p-notas']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = bloquear; });
+  }
+
+  function cambiarModo() {
+    const existente = document.getElementById('p-modo').value === 'existente';
+    document.getElementById('p-pedido-existente').style.display = existente ? '' : 'none';
+    bloquearEncabezado(existente);
+    document.getElementById('p-descripcion').innerHTML = existente
+      ? 'Elige el pedido que quieres ampliar y captura abajo los productos nuevos. Se conserva su proveedor, fechas, moneda y envío; al guardar, el envío se reparte de nuevo entre todas sus piezas.'
+      : 'Llena los datos generales, agrega tus productos abajo y pon el <b>envío total del pedido</b>. El sistema reparte el envío entre las piezas y todo se guarda en <b>pesos</b>.';
+    if (!existente) pedidoExistente = null;
+    renderKpis();
+  }
+
+  async function seleccionarPedido(id) {
+    pedidoExistente = null;
+    if (!id) { renderKpis(); return; }
+    try {
+      const r = await Api.get(`purchase_orders.php?id=${id}`);
+      pedidoExistente = r.order;
+      const p = r.order;
+      document.getElementById('p-num').value = p.order_number;
+      document.getElementById('p-prov').value = p.supplier_name || '';
+      document.getElementById('p-fcompra').value = p.purchase_date || '';
+      document.getElementById('p-fllegada').value = p.arrival_date || '';
+      document.getElementById('p-moneda').value = p.currency || 'MXN';
+      document.getElementById('p-envio').value = p.shipping_total_original || 0;
+      document.getElementById('p-tc').value = p.exchange_rate || 1;
+      document.getElementById('p-notas').value = p.notes || '';
+      renderKpis();
+    } catch (e) { toast(e && e.message ? e.message : 'No se pudo cargar el pedido', 'error'); }
+  }
+
+  async function agregarAPedido(id) {
+    switchTab('entradas');
+    document.getElementById('p-modo').value = 'existente';
+    cambiarModo();
+    await cargarPedidos();
+    document.getElementById('p-pedido-select').value = String(id);
+    await seleccionarPedido(String(id));
   }
 
   // ---------------------------------------------------------------
@@ -571,17 +629,35 @@ const Entradas = (() => {
     const limpios = items.map(({ __grupo, ...resto }) => resto);
 
     try {
-      const r = await Api.post('purchase_orders.php', { header, items: limpios });
-      toast(`Pedido guardado: ${limpios.length} pieza(s) en ${grupos.length} grupo(s)`);
+      if (document.getElementById('p-modo').value === 'existente') {
+        if (!pedidoExistente) { toast('Selecciona el pedido que quieres modificar', 'error'); return; }
+        await Api.post(`purchase_orders.php?id=${pedidoExistente.id}&action=append-items`, { items: limpios });
+        toast(`Pedido #${pedidoExistente.order_number} actualizado: ${limpios.length} pieza(s) agregadas`);
+      } else {
+        await Api.post('purchase_orders.php', { header, items: limpios });
+        toast(`Pedido guardado: ${limpios.length} pieza(s) en ${grupos.length} grupo(s)`);
+      }
       cerrarPrev();
       reset(true);
       renderKpis();
+      await cargarPedidos();
+      if (typeof Inventario !== 'undefined') await Inventario.refreshMeta();
     } catch (e) { /* Api.post ya mostró el error */ }
   }
 
   function reset(silencioso = false) {
     if (!silencioso && totalUnidades() && !confirm('¿Limpiar la captura actual?')) return;
     grupos = [];
+    pedidoExistente = null;
+    const modo = document.getElementById('p-modo');
+    if (modo) modo.value = 'nuevo';
+    const selector = document.getElementById('p-pedido-select');
+    if (selector) selector.value = '';
+    const existente = document.getElementById('p-pedido-existente');
+    if (existente) existente.style.display = 'none';
+    bloquearEncabezado(false);
+    const descripcion = document.getElementById('p-descripcion');
+    if (descripcion) descripcion.innerHTML = 'Llena los datos generales, agrega tus productos abajo y pon el <b>envío total del pedido</b>. El sistema reparte el envío entre las piezas y todo se guarda en <b>pesos</b>.';
     ['p-num', 'p-prov', 'p-envio', 'p-fllegada', 'p-notas'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
@@ -590,7 +666,7 @@ const Entradas = (() => {
   }
 
   return {
-    init, render, calc, renderKpis,
+    init, render, calc, renderKpis, cambiarModo, seleccionarPedido, agregarAPedido,
     agregarGrupo, duplicarGrupo, eliminarGrupo, toggleColapso, toggleCompartido,
     generar, agregarUnidad, quitarUnidad, duplicarUnidad, rellenar,
     abrirPegar, cerrarPegar, aplicarPegado, procesarPegado,

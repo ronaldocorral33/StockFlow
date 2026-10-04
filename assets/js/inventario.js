@@ -2,7 +2,8 @@
 const Inventario = (() => {
   let cache = [];
   let selected = new Set();
-  let sort = { col: 'created_at', dir: 'desc' };
+  // La vista inicial agrupa por pedido y muestra primero el último capturado.
+  let sort = { col: 'order_number', dir: 'desc' };
   let editingId = null;
   let sellingId = null;
   let metaLoaded = false;

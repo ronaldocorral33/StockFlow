@@ -225,6 +225,7 @@ tbody tr.rowsel{background:var(--royal-soft) !important}
 .impopt{display:flex; gap:11px; align-items:flex-start; border:1px solid var(--line); border-radius:var(--radius-md); padding:13px 15px; margin-bottom:10px; cursor:pointer; transition:border-color .16s var(--ease), background .16s var(--ease)}
 .impopt:hover{background:var(--surface)}
 .impopt:has(input:checked){border-color:var(--royal); background:var(--royal-soft)}
+.impopt-danger:has(input:checked){border-color:var(--amber); background:var(--amber-soft)}
 .impopt input{margin-top:3px; accent-color:var(--royal); flex:none}
 .impopt b{display:block; font-size:.88rem; margin-bottom:2px}
 .impopt span{display:block; font-size:.79rem; color:var(--ink-soft); line-height:1.5}

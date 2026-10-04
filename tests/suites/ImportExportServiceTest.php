@@ -78,6 +78,36 @@ test('la huella SÍ distingue por atributo (talla)', function () {
     assertTrue(IE::matchKey($m) !== IE::matchKey($xl));
 });
 
+test('reemplazar borra las piezas anteriores e importa el Excel desde cero', function () use ($db) {
+    $limpiarDatos = function () use ($db) {
+        $db->prepare('DELETE FROM inventory_items WHERE business_id = ?')->execute([TEST_BIZ]);
+        $db->prepare('DELETE FROM purchase_orders WHERE business_id = ?')->execute([TEST_BIZ]);
+        $db->prepare('DELETE FROM suppliers WHERE business_id = ?')->execute([TEST_BIZ]);
+    };
+    $limpiarDatos();
+
+    try {
+        IE::importRows(TEST_BIZ, TEST_USER, [fila(['Nombre' => 'Inventario anterior'])], IE::MODE_ADD);
+
+        $ensayo = IE::importRows(TEST_BIZ, TEST_USER, [fila(['Nombre' => 'Inventario actualizado'])], IE::MODE_REPLACE, true);
+        assertSame(1, $ensayo['replaced_items'], 'el ensayo debe indicar la pieza que se reemplazará');
+        assertSame(1, count(piezasDePrueba()), 'el ensayo nunca debe borrar datos');
+
+        try {
+            IE::importRows(TEST_BIZ, TEST_USER, [['Nombre' => 'Ignorado']], IE::MODE_REPLACE, false, ['Nombre' => '__ignorar__']);
+            throw new \RuntimeException('un archivo sin filas importables debió rechazarse');
+        } catch (\InvalidArgumentException $e) {
+            assertSame(1, count(piezasDePrueba()), 'un Excel inválido no puede vaciar el inventario');
+        }
+
+        $resultado = IE::importRows(TEST_BIZ, TEST_USER, [fila(['Nombre' => 'Inventario actualizado'])], IE::MODE_REPLACE);
+        assertSame(1, $resultado['inserted']);
+        assertSame('Inventario actualizado', piezasDePrueba()[0]['name']);
+    } finally {
+        $limpiarDatos();
+    }
+});
+
 test('la huella normaliza dinero y mayúsculas', function () {
     $a = ['name' => 'FC Barcelona', 'cost' => '1,200.00'];
     $b = ['name' => 'fc barcelona', 'cost' => 1200];
@@ -215,6 +245,19 @@ test('el número de pedido se resuelve a UN pedido, no a uno por fila', function
 
     $count = (int)$db->query('SELECT item_count FROM purchase_orders WHERE business_id = ' . TEST_BIZ)->fetchColumn();
     assertSame(5, $count, 'item_count debe recalcularse tras importar');
+});
+
+test('inventario se ordena por el último pedido aunque todas las filas se importen juntas', function () {
+    IE::importRows(TEST_BIZ, TEST_USER, [
+        fila(['Nombre' => 'Pedido nueve', 'Pedido' => '9']),
+        fila(['Nombre' => 'Pedido quince', 'Pedido' => '15']),
+    ], IE::MODE_ADD);
+
+    $orden = array_values(array_unique(array_map(
+        fn($p) => (int)$p['order_number'],
+        InventoryItem::list(TEST_BIZ)
+    )));
+    assertSame([15, 12, 9], $orden, 'el pedido más reciente debe aparecer primero');
 });
 
 test('una fila sin columna Pedido no inventa un pedido', function () {

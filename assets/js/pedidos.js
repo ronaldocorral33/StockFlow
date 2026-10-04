@@ -21,6 +21,7 @@
 const Pedidos = (() => {
   let cache = [];
   let editandoId = null;
+  let piezasEditando = [];
 
   // ---------------------------------------------------------------
   // Listar
@@ -112,7 +113,7 @@ const Pedidos = (() => {
   // Corregir
   // ---------------------------------------------------------------
 
-  function abrirEdicion(id) {
+  async function abrirEdicion(id) {
     const p = cache.find(x => x.id === id);
     if (!p) return;
     editandoId = id;
@@ -130,19 +131,62 @@ const Pedidos = (() => {
     // original en dólares no se puede reconstruir.
     document.getElementById('ped-moneda').textContent =
       p.currency === 'USD' ? `USD a ${p.exchange_rate}` : 'Pesos (MXN)';
-
     document.getElementById('ped-aviso').innerHTML = p.piezas
       ? `El envío se reparte otra vez entre las <b>${p.piezas}</b> piezas del pedido. ` +
         `Las fechas y el proveedor se corrigen solo en las piezas que todavía tienen el valor viejo: ` +
         `si a alguna le pusiste otra fecha a mano, se respeta.`
       : 'Este pedido no tiene piezas.';
 
+    document.getElementById('ped-items').innerHTML = '<p class="muted" style="font-size:.8rem">Cargando productos…</p>';
+    document.getElementById('ped-items-count').textContent = '';
     document.getElementById('ped-bg').classList.add('show');
+    try {
+      const r = await Api.get(`purchase_orders.php?id=${id}`);
+      if (editandoId !== id) return;
+      piezasEditando = r.items || [];
+      pintarPiezas();
+    } catch (e) {
+      document.getElementById('ped-items').innerHTML = '<p class="muted" style="font-size:.8rem">No se pudieron cargar los productos.</p>';
+    }
   }
 
   function cerrarEdicion() {
     document.getElementById('ped-bg').classList.remove('show');
     editandoId = null;
+    piezasEditando = [];
+  }
+
+  function pintarPiezas() {
+    const cont = document.getElementById('ped-items');
+    document.getElementById('ped-items-count').textContent = `${piezasEditando.length} pieza${piezasEditando.length === 1 ? '' : 's'}`;
+    cont.innerHTML = piezasEditando.map(i => `
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px solid var(--line-soft);font-size:.82rem">
+        <span style="flex:1;min-width:0"><b>${esc(i.name)}</b>${i.variant_label ? ` <span class="muted">· ${esc(i.variant_label)}</span>` : ''}<span class="muted"> · ${mx(i.total_cost || 0)}</span></span>
+        ${i.sale_date ? '<span class="pill vendida">Vendida</span>' : `<button class="rowbtn" title="Quitar producto" onclick="Pedidos.quitarProducto(${i.id})">${icon('trash', 15)}</button>`}
+      </div>`).join('') || '<p class="muted" style="font-size:.8rem">Este pedido no tiene productos.</p>';
+  }
+
+  function agregarProductosCompletos() {
+    if (!editandoId) return;
+    const id = editandoId;
+    cerrarEdicion();
+    Entradas.agregarAPedido(id);
+  }
+
+  async function quitarProducto(itemId) {
+    if (!editandoId) return;
+    const item = piezasEditando.find(i => i.id === itemId);
+    if (!item || !confirm(`¿Quitar "${item.name}" de este pedido?\n\nEl envío se redistribuirá entre las piezas restantes.`)) return;
+    try {
+      await Api.del(`purchase_orders.php?id=${editandoId}&item_id=${itemId}`);
+      piezasEditando = piezasEditando.filter(i => i.id !== itemId);
+      pintarPiezas();
+      await render();
+      await Inventario.refreshMeta();
+      toast('Producto quitado · envío redistribuido');
+    } catch (e) {
+      toast(e && e.message ? e.message : 'No se pudo quitar el producto', 'error');
+    }
   }
 
   async function guardar() {
@@ -203,5 +247,5 @@ const Pedidos = (() => {
     }
   }
 
-  return { render, verPiezas, abrirEdicion, cerrarEdicion, guardar, borrar };
+  return { render, verPiezas, abrirEdicion, cerrarEdicion, guardar, borrar, agregarProductosCompletos, quitarProducto };
 })();

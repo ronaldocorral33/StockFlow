@@ -51,6 +51,24 @@ if (in_array($method, ['POST', 'PUT', 'DELETE'], true)) {
 }
 
 if ($method === 'POST') {
+    if (($_GET['action'] ?? '') === 'append-items' && $id > 0) {
+        Authz::require('update', 'purchase_orders');
+        try {
+            $r = PurchaseOrder::appendItems($businessId, $userId, $id, json_body()['items'] ?? []);
+            json_response(['ok' => true] + $r);
+        } catch (\InvalidArgumentException $e) {
+            json_response(['error' => $e->getMessage()], 422);
+        }
+    }
+    if (($_GET['action'] ?? '') === 'add-item' && $id > 0) {
+        Authz::require('update', 'purchase_orders');
+        try {
+            $r = PurchaseOrder::addItem($businessId, $userId, $id, json_body());
+            json_response(['ok' => true] + $r);
+        } catch (\InvalidArgumentException $e) {
+            json_response(['error' => $e->getMessage()], 422);
+        }
+    }
     Authz::require('create', 'purchase_orders');
     $body = json_body();
     try {
@@ -77,6 +95,15 @@ if ($method === 'PUT' && $id > 0) {
 }
 
 if ($method === 'DELETE' && $id > 0) {
+    if (isset($_GET['item_id'])) {
+        Authz::require('update', 'purchase_orders');
+        try {
+            PurchaseOrder::removeItem($businessId, $id, (int)$_GET['item_id']);
+            json_response(['ok' => true]);
+        } catch (\InvalidArgumentException $e) {
+            json_response(['error' => $e->getMessage()], 422);
+        }
+    }
     Authz::require('delete', 'purchase_orders');
     try {
         $r = PurchaseOrder::deleteWithItems($businessId, $id);

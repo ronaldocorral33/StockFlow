@@ -221,6 +221,51 @@ test('no tocar el envío deja el reparto como estaba', function () {
 });
 
 // ---------------------------------------------------------------
+// Productos dentro de un pedido ya guardado
+// ---------------------------------------------------------------
+
+test('agregar una pieza hereda el pedido y redistribuye el envío sin perder centavos', function () {
+    $po = peCrear(PE_BIZ, ['order_number' => 65, 'shipping_total' => 10, 'supplier' => 'Proveedor nuevo', 'purchase_date' => '2026-09-01'], 2, 100);
+    $r = PO::addItem(PE_BIZ, PE_USER, $po, ['name' => 'Jersey agregado', 'cost' => 150]);
+
+    $piezas = pePiezas($po);
+    assertSame(3, count($piezas));
+    assertSame(10.0, round(array_sum(array_map(fn($p) => (float)$p['shipping_cost'], $piezas)), 2));
+    assertSame(3, (int)PO::find($po, PE_BIZ)['piezas']);
+    $nueva = array_values(array_filter($piezas, fn($p) => (int)$p['id'] === $r['item_id']))[0];
+    assertSame('2026-09-01', $nueva['purchase_date']);
+});
+
+test('quitar una pieza no vendida redistribuye el envío y no permite tocar una vendida', function () {
+    $po = peCrear(PE_BIZ, ['order_number' => 66, 'shipping_total' => 10], 3, 100);
+    $piezas = pePiezas($po);
+    PO::removeItem(PE_BIZ, $po, (int)$piezas[2]['id']);
+    assertSame(2, count(pePiezas($po)));
+    assertSame(10.0, round(array_sum(array_map(fn($p) => (float)$p['shipping_cost'], pePiezas($po))), 2));
+
+    InventoryItem::sell((int)$piezas[0]['id'], PE_BIZ, 200, '2026-09-01');
+    assertTrue(str_contains(peRechaza(fn() => PO::removeItem(PE_BIZ, $po, (int)$piezas[0]['id'])), 'venta registrada'));
+    assertSame(2, count(pePiezas($po)), 'una eliminación rechazada no debe borrar nada');
+});
+
+test('agregar un lote al pedido es atómico y conserva los atributos de cada pieza', function () {
+    $po = peCrear(PE_BIZ, ['order_number' => 67, 'shipping_total' => 10], 1, 100);
+    $r = PO::appendItems(PE_BIZ, PE_USER, $po, [
+        ['name' => 'Grupo nuevo S', 'cost' => 120, 'attributes' => ['talla' => 'S']],
+        ['name' => 'Grupo nuevo M', 'cost' => 120, 'attributes' => ['talla' => 'M']],
+    ]);
+    assertSame(2, count($r['item_ids']));
+    assertSame(3, count(pePiezas($po)));
+    assertSame(10.0, round(array_sum(array_map(fn($p) => (float)$p['shipping_cost'], pePiezas($po))), 2));
+    assertSame(3, (int)PO::find($po, PE_BIZ)['piezas']);
+
+    assertTrue(str_contains(peRechaza(fn() => PO::appendItems(PE_BIZ, PE_USER, $po, [
+        ['name' => 'sí entra', 'cost' => 100], ['name' => '', 'cost' => 100],
+    ])), 'nombre'));
+    assertSame(3, count(pePiezas($po)), 'un lote inválido no debe agregar solo una parte');
+});
+
+// ---------------------------------------------------------------
 // Propagación a las piezas: la regla más delicada
 // ---------------------------------------------------------------
 

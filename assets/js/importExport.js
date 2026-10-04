@@ -101,6 +101,13 @@ const ImportExport = (() => {
     return el ? el.value : 'sync';
   }
 
+  function esReemplazo() { return modoElegido() === 'replace'; }
+
+  function textoBoton(r) {
+    if (r.mode === 'replace') return 'Reemplazar e importar';
+    return r.inserted && !r.updated ? `Agregar ${r.inserted}` : 'Aplicar cambios';
+  }
+
   /** Ensayo: pregunta al servidor qué pasaría, sin escribir nada. */
   async function preview() {
     if (!pendientes) return;
@@ -115,7 +122,7 @@ const ImportExport = (() => {
       });
       box.innerHTML = renderEnsayo(res);
       btn.disabled = false;
-      btn.textContent = res.inserted && !res.updated ? `Agregar ${res.inserted}` : 'Aplicar cambios';
+      btn.textContent = textoBoton(res);
     } catch (err) {
       box.innerHTML = '<span class="muted" style="font-size:.82rem">No pude revisar el archivo. Revisa el mapeo.</span>';
     }
@@ -143,6 +150,9 @@ const ImportExport = (() => {
       html += `<div class="impwarn"><span>⚠</span><span>Se agregarán las ${r.inserted} filas sin revisar si ya las tienes.
         Si el archivo incluye piezas que ya están en tu inventario, quedarán duplicadas.</span></div>`;
     }
+    if (r.mode === 'replace') {
+      html += `<div class="impwarn"><span>⚠</span><span><b>Se reemplazará tu inventario actual:</b> se eliminarán ${r.replaced_items || 0} pieza(s) y después se cargarán las ${r.inserted} fila(s) válidas de este Excel.</span></div>`;
+    }
     if (r.errors && r.errors.length) {
       html += `<div class="impwarn"><span>⚠</span><span>${r.errors.length} fila(s) con problemas; se omitirán.
         Primera: fila ${r.errors[0].row} — ${esc(r.errors[0].reason)}</span></div>`;
@@ -153,8 +163,13 @@ const ImportExport = (() => {
   async function confirm() {
     if (!pendientes) return;
     const btn = document.getElementById('import-go');
+    if (esReemplazo() && !window.confirm(
+      'Vas a borrar todas las piezas actuales para cargar este Excel. Esta acción no se puede deshacer. ¿Deseas continuar?'
+    )) {
+      return;
+    }
     btn.disabled = true;
-    btn.textContent = 'Importando…';
+    btn.textContent = esReemplazo() ? 'Reemplazando…' : 'Importando…';
 
     try {
       const res = await Api.post('import.php', {
@@ -165,7 +180,9 @@ const ImportExport = (() => {
       if (res.updated) partes.push(`${res.updated} actualizada(s)`);
       if (res.unchanged) partes.push(`${res.unchanged} sin cambios`);
       if (res.skipped) partes.push(`${res.skipped} omitida(s)`);
-      toast(partes.length ? partes.join(', ') : 'Nada que importar');
+      toast(res.mode === 'replace'
+        ? `Inventario reemplazado: ${partes.length ? partes.join(', ') : 'sin filas válidas'}`
+        : (partes.length ? partes.join(', ') : 'Nada que importar'));
       if (res.errors && res.errors.length) console.warn('Errores de importación:', res.errors);
 
       close();
@@ -173,7 +190,7 @@ const ImportExport = (() => {
       Entradas.renderKpis();
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = 'Importar';
+      btn.textContent = esReemplazo() ? 'Reemplazar e importar' : 'Importar';
     }
   }
 

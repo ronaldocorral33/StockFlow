@@ -270,7 +270,12 @@ class ImportExportService
      * del mapeo se validan contra el registro: una clave que no exista se ignora, así
      * que un mapeo manipulado no puede escribir en una columna arbitraria.
      */
-    public static function mapWithMapping(array $rawRow, array $mapping, array $registro): ?array
+    public static function mapWithMapping(
+        array $rawRow,
+        array $mapping,
+        array $registro,
+        bool $allowPartialById = false
+    ): ?array
     {
         $porClave = [];
         foreach ($registro as $f) { $porClave[$f['field_key']] = $f; }
@@ -305,12 +310,17 @@ class ImportExportService
             }
         }
 
-        return empty($data['name']) ? null : $data;
+        // Al crear una pieza, Producto sigue siendo obligatorio. Pero una actualización
+        // con ID exacto puede traer solo una columna (por ejemplo, recuperar el nombre
+        // de jugador) y no debe descartarse antes de alcanzar el sincronizador.
+        return empty($data['name']) && !($allowPartialById && !empty($data['id'])) ? null : $data;
     }
     /** Solo inserta. Es el comportamiento histórico: rápido, y el que duplica si te equivocas. */
     public const MODE_ADD = 'add';
     /** Empareja contra lo que ya existe: actualiza lo conocido, inserta solo lo nuevo. */
     public const MODE_SYNC = 'sync';
+    /** Elimina las piezas actuales e importa el archivo como inventario nuevo. */
+    public const MODE_REPLACE = 'replace';
 
     /**
      * Huella estable de una pieza: lo que la identifica y NO cambia cuando la vendes.
@@ -378,12 +388,14 @@ class ImportExportService
     }
 
     /**
-     * Importa filas de Excel en uno de dos modos.
+     * Importa filas de Excel en uno de tres modos.
      *
      * MODE_ADD  — inserta todo. Útil cuando sabes que el archivo trae solo cosas nuevas.
      * MODE_SYNC — empareja cada fila con una pieza existente (por columna ID si viene,
      *             si no por huella estable) y la ACTUALIZA; solo inserta lo que no
      *             encontró. Nunca borra nada.
+     * MODE_REPLACE — elimina las piezas de inventario actuales y carga el archivo
+     *                desde cero. La limpieza y la importación son atómicas.
      *
      * Con $dryRun = true no escribe nada: solo cuenta qué pasaría. Existe porque una
      * importación equivocada es cara de deshacer, y ver "738 actualizadas, 0 nuevas"
@@ -400,9 +412,33 @@ class ImportExportService
         bool $dryRun = false,
         ?array $mapping = null
     ): array {
-        $mode = $mode === self::MODE_SYNC ? self::MODE_SYNC : self::MODE_ADD;
+        $mode = in_array($mode, [self::MODE_ADD, self::MODE_SYNC, self::MODE_REPLACE], true)
+            ? $mode
+            : self::MODE_ADD;
+        $reemplazar = $mode === self::MODE_REPLACE;
         $attrDefs = AttributeDefinition::listForBusiness($businessId);
         $registroCompleto = AttributeDefinition::listRegistry($businessId);
+
+        $piezasAReemplazar = self::replacementItemCount($businessId);
+
+        // La opción destructiva jamás puede dejar el inventario vacío por un archivo
+        // sin una fila importable (por ejemplo, si el usuario ignoró "Producto" en el
+        // mapeo). Se valida antes de abrir la transacción que elimina las piezas.
+        if ($reemplazar) {
+            $hayFilaImportable = false;
+            foreach ($rawRows as $rawRow) {
+                $candidata = $mapping !== null
+                    ? self::mapWithMapping($rawRow, $mapping, $registroCompleto)
+                    : self::mapImportRow($rawRow, $attrDefs);
+                if ($candidata !== null) {
+                    $hayFilaImportable = true;
+                    break;
+                }
+            }
+            if (!$hayFilaImportable) {
+                throw new \InvalidArgumentException('El Excel no tiene ninguna fila importable; no se borró el inventario.');
+            }
+        }
 
         // Índices de lo que ya existe. Se arman una sola vez: emparejar 700 filas con
         // una consulta por fila serían 700 viajes a la base.
@@ -421,11 +457,19 @@ class ImportExportService
         $pdo = \App\Database::connection();
         $pdo->beginTransaction();
         try {
+            if ($reemplazar && !$dryRun) {
+                $pdo->prepare('DELETE FROM inventory_items WHERE business_id = ?')->execute([$businessId]);
+            }
             foreach ($rawRows as $i => $rawRow) {
                 // Con mapeo confirmado se usa ése; sin él se conserva el camino
                 // automático, para no romper las importaciones que ya funcionaban.
                 $data = $mapping !== null
-                    ? self::mapWithMapping($rawRow, $mapping, $registroCompleto)
+                    ? self::mapWithMapping(
+                        $rawRow,
+                        $mapping,
+                        $registroCompleto,
+                        $mode === self::MODE_SYNC
+                    )
                     : self::mapImportRow($rawRow, $attrDefs);
                 if ($data === null) {
                     $r['skipped']++;
@@ -466,6 +510,11 @@ class ImportExportService
                 // El ensayo escribió pedidos para poder emparejar; deshacerlo es el punto.
                 $pdo->rollBack();
             } else {
+                // Ante un fallo que hizo inválidas todas las filas, preservar el
+                // inventario anterior es más seguro que confirmarlo vacío.
+                if ($reemplazar && $r['inserted'] === 0) {
+                    throw new \RuntimeException('No se pudo importar ninguna fila; no se reemplazó el inventario.');
+                }
                 foreach (array_keys($pedidos) as $poId) {
                     PurchaseOrder::refreshItemCount($businessId, (int)$poId);
                 }
@@ -479,9 +528,20 @@ class ImportExportService
         return $r + [
             'mode' => $mode,
             'dry_run' => $dryRun,
+            'replaced_items' => $piezasAReemplazar,
             'orders' => count($pedidos),
             'total' => count($rawRows),
         ];
+    }
+
+    /** Cantidad de piezas que se eliminarán en MODE_REPLACE, aislada por negocio. */
+    private static function replacementItemCount(int $businessId): int
+    {
+        $stmt = \App\Database::connection()->prepare(
+            'SELECT COUNT(*) FROM inventory_items WHERE business_id = ?'
+        );
+        $stmt->execute([$businessId]);
+        return (int)$stmt->fetchColumn();
     }
 
     /**

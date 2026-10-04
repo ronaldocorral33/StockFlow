@@ -39,11 +39,17 @@ if (!is_array($rows) || empty($rows)) {
 // Actualizar filas existentes es editar inventario, no solo crearlo: se exige el
 // permiso de edición ADEMÁS del de creación. Un rol que solo puede dar de alta
 // piezas no debería poder reescribir el inventario entero desde un Excel.
-$mode = ($body['mode'] ?? '') === ImportExportService::MODE_SYNC
-    ? ImportExportService::MODE_SYNC
-    : ImportExportService::MODE_ADD;
+$mode = $body['mode'] ?? '';
+$mode = in_array($mode, [
+    ImportExportService::MODE_ADD,
+    ImportExportService::MODE_SYNC,
+    ImportExportService::MODE_REPLACE,
+], true) ? $mode : ImportExportService::MODE_ADD;
 if ($mode === ImportExportService::MODE_SYNC) {
     Authz::require('update', 'inventory_items');
+}
+if ($mode === ImportExportService::MODE_REPLACE) {
+    Authz::require('delete', 'inventory_items');
 }
 
 $dryRun = !empty($body['dry_run']);

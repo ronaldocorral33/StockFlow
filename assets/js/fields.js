@@ -53,7 +53,7 @@ const Fields = (() => {
   /** Campos que el backend puede ordenar (InventoryItem::SORTABLE). El resto se
    *  dibuja sin encabezado clicable, igual que hoy los atributos personalizados. */
   const SORTABLE = new Set([
-    'name', 'category', 'subcategory', 'cost', 'shipping_cost',
+    'name', 'category', 'subcategory', 'order_number', 'cost', 'shipping_cost',
     'sale_price', 'total_cost', 'profit', 'purchase_date', 'arrival_date', 'sale_date',
   ]);
 

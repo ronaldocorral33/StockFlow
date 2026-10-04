@@ -9,7 +9,7 @@ class InventoryItem
 {
     private const SORTABLE = [
         'id', 'name', 'category', 'subcategory', 'cost', 'shipping_cost', 'sale_price',
-        'total_cost', 'profit', 'purchase_date', 'arrival_date', 'sale_date', 'created_at',
+        'total_cost', 'profit', 'purchase_date', 'arrival_date', 'sale_date', 'created_at', 'order_number',
     ];
 
     public static function list(int $businessId, array $filters = []): array
@@ -73,9 +73,18 @@ class InventoryItem
             $params[] = (int)$filters['purchase_order_id'];
         }
 
-        $sortCol = in_array($filters['sort'] ?? '', self::SORTABLE, true) ? $filters['sort'] : 'created_at';
+        // El pedido es la secuencia natural del inventario: el más reciente va primero.
+        // created_at deja de ser fiable después de importar un Excel, porque cientos de
+        // piezas se insertan en el mismo segundo y su orden queda indeterminado.
+        $sortCol = in_array($filters['sort'] ?? '', self::SORTABLE, true) ? $filters['sort'] : 'order_number';
         $dir = (($filters['dir'] ?? 'desc') === 'asc') ? 'ASC' : 'DESC';
-        $sql .= " ORDER BY i.$sortCol $dir";
+        if ($sortCol === 'order_number') {
+            // Los artículos sin pedido se conservan visibles, pero después de los que
+            // sí pertenecen a un lote. El id mantiene estable el orden dentro del pedido.
+            $sql .= " ORDER BY (po.order_number IS NULL) ASC, po.order_number $dir, i.id ASC";
+        } else {
+            $sql .= " ORDER BY i.$sortCol $dir";
+        }
 
         $stmt = Database::connection()->prepare($sql);
         $stmt->execute($params);

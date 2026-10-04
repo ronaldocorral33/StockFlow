@@ -91,8 +91,10 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
         <div class="kpis" id="kpis-ent"></div>
         <div class="cap-head">
           <h3><?= icon('inbox') ?> Capturar pedido del proveedor</h3>
-          <p>Llena los datos generales, agrega tus productos abajo y pon el <b>envío total del pedido</b>. El sistema reparte el envío entre las piezas y todo se guarda en <b>pesos</b>.</p>
+          <p id="p-descripcion">Llena los datos generales, agrega tus productos abajo y pon el <b>envío total del pedido</b>. El sistema reparte el envío entre las piezas y todo se guarda en <b>pesos</b>.</p>
           <div class="cap-grid">
+            <div class="field"><label>Captura</label><select id="p-modo" onchange="Entradas.cambiarModo()"><option value="nuevo">Nuevo pedido</option><option value="existente">Agregar a pedido existente</option></select></div>
+            <div class="field" id="p-pedido-existente" style="display:none"><label>Pedido a modificar</label><select id="p-pedido-select" onchange="Entradas.seleccionarPedido(this.value)"><option value="">Selecciona un pedido…</option></select></div>
             <div class="field"><label># Pedido</label><input id="p-num" type="number"></div>
             <div class="field"><label>Proveedor</label><input id="p-prov" list="dl-proveedor" placeholder="Ej. Alibaba"></div>
             <div class="field"><label>Fecha de compra</label><input id="p-fcompra" type="date"></div>
@@ -314,7 +316,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
   </div>
 </div>
 <div class="modal-bg" id="exp-bg">
-  <div class="modal" style="max-width:560px">
+  <div class="modal" style="max-width:720px">
     <h2><span><?= icon('download', 17) ?> Exportar a Excel</span><span class="x" onclick="ImportExport.closeExport()"><?= icon('x', 18) ?></span></h2>
     <div class="mbody">
       <div class="entgen" style="margin-bottom:14px">
@@ -358,6 +360,14 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
         <div>
           <b>Agregar como nuevo</b>
           <span>Inserta todas las filas sin revisar si ya existen. Úsalo solo si el archivo trae únicamente piezas nuevas.</span>
+        </div>
+      </label>
+
+      <label class="impopt impopt-danger" for="mode-replace">
+        <input type="radio" name="import-mode" id="mode-replace" value="replace" onchange="ImportExport.preview()">
+        <div>
+          <b>Empezar de cero con este Excel</b>
+          <span>Borra las piezas actuales y carga únicamente este archivo. Te pediremos confirmación antes de hacerlo.</span>
         </div>
       </label>
 
@@ -417,6 +427,12 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the
       </div>
       <div class="field" style="margin-top:4px"><label>Notas</label><input id="ped-notas" type="text" placeholder="Opcional"></div>
       <p id="ped-aviso" class="muted" style="margin-top:12px"></p>
+      <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><b>Productos del pedido</b><span id="ped-items-count" class="muted"></span></div>
+        <div id="ped-items" style="margin:8px 0 12px;max-height:160px;overflow:auto"></div>
+        <button class="btn ghost sm" style="margin-top:10px" onclick="Pedidos.agregarProductosCompletos()">${icon('plus', 14)} Agregar productos con captura completa</button>
+        <p class="muted" style="font-size:.76rem;margin-top:7px">Conserva los campos configurados, grupos y varias unidades. El envío se redistribuye automáticamente.</p>
+      </div>
     </div>
     <div class="mfoot">
       <button class="btn ghost" onclick="Pedidos.cerrarEdicion()">Cancelar</button>
